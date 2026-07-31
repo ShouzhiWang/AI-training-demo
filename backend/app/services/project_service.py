@@ -44,34 +44,26 @@ class ProjectService:
         )
 
     def apply_file_updates(
-        self, project_id: UUID, updates: list[dict[str, str]]
+        self,
+        project_id: UUID,
+        user_id: UUID,
+        title: str,
+        updates: list[dict[str, str]],
     ) -> list[dict]:
-        saved: list[dict] = []
-        for update in updates:
-            existing = (
-                self.client.table("project_files")
-                .select("id,version")
-                .eq("project_id", str(project_id))
-                .eq("path", update["path"])
-                .maybe_single()
-                .execute()
-                .data
+        if not updates:
+            return []
+        return (
+            self.client.rpc(
+                "save_project_changes",
+                {
+                    "p_project_id": str(project_id),
+                    "p_actor_id": str(user_id),
+                    "p_changes": updates,
+                    "p_title": title[:140],
+                    "p_source": "agent",
+                },
             )
-            if not existing:
-                continue
-            result = (
-                self.client.table("project_files")
-                .update(
-                    {
-                        "content": update["content"],
-                        "version": existing["version"] + 1,
-                    }
-                )
-                .eq("id", existing["id"])
-                .eq("project_id", str(project_id))
-                .execute()
-            )
-            if result.data:
-                saved.append(result.data[0])
-        return saved
-
+            .execute()
+            .data
+            or []
+        )

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -21,8 +22,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
-  CloudArrowUpIcon,
-  CodeBracketSquareIcon,
   ComputerDesktopIcon,
   DevicePhoneMobileIcon,
   DocumentIcon,
@@ -46,6 +45,7 @@ import {
   buildPreviewDocument,
   demoProjectFiles,
   type ProjectFile,
+  type ProjectVersion,
   type StudentProject,
 } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
@@ -58,6 +58,7 @@ type AgentMessage = {
   content: string;
   agent?: "supervisor" | "planner" | "coder" | "reviewer";
   suggestions?: string[];
+  createdAt?: string;
 };
 
 export type Viewer = {
@@ -68,9 +69,9 @@ export type Viewer = {
 };
 
 const promptStarters = [
-  "Add a score and streak",
-  "Make the feedback more encouraging",
-  "Add an ocean habitat",
+  "Help me plan the next step",
+  "Review the learning experience",
+  "Suggest one useful improvement",
 ];
 
 export default function PlatformApp({
@@ -96,9 +97,14 @@ export default function PlatformApp({
   const [message, setMessage] = useState("");
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [agentSessionId, setAgentSessionId] = useState<string | null>(null);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentFileChanges, setAgentFileChanges] = useState(0);
+  const [projectVersions, setProjectVersions] = useState<ProjectVersion[]>([]);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
+  const [versionError, setVersionError] = useState<string | null>(null);
   const [isPublished, setIsPublished] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showShare, setShowShare] = useState(false);
@@ -122,6 +128,36 @@ export default function PlatformApp({
   const previewDocument = useMemo(
     () => buildPreviewDocument(previewFiles),
     [previewFiles],
+  );
+  const versionSummaries = useMemo(
+    () => summarizeVersions(projectVersions),
+    [projectVersions],
+  );
+
+  const loadProjectVersions = useCallback(
+    async (projectId: string) => {
+      if (!viewer.id) {
+        setProjectVersions([]);
+        return;
+      }
+      setIsLoadingVersions(true);
+      setVersionError(null);
+      const { data, error } = await createClient()
+        .from("project_versions")
+        .select(
+          "id, project_id, version, title, source, created_at, project_version_files(id, project_version_id, path, content, file_version)",
+        )
+        .eq("project_id", projectId)
+        .order("version", { ascending: false });
+      if (error) {
+        setVersionError(error.message);
+        setProjectVersions([]);
+      } else {
+        setProjectVersions((data ?? []) as ProjectVersion[]);
+      }
+      setIsLoadingVersions(false);
+    },
+    [viewer.id],
   );
 
   useEffect(() => {
@@ -175,8 +211,84 @@ export default function PlatformApp({
     }
 
     void loadProjectFiles();
+    const versionTask = window.setTimeout(
+      () => void loadProjectVersions(activeProject.id),
+      0,
+    );
     return () => {
       isCurrent = false;
+      window.clearTimeout(versionTask);
+    };
+  }, [activeProject, loadProjectVersions, viewer.id]);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    let isCurrent = true;
+
+    async function loadConversation() {
+      setIsLoadingConversation(true);
+      setAgentMessages([]);
+      setAgentSessionId(null);
+      setAgentError(null);
+
+      if (!viewer.id) {
+        setIsLoadingConversation(false);
+        return;
+      }
+
+      const supabase = createClient();
+      const { data: sessions, error: sessionError } = await supabase
+        .from("agent_sessions")
+        .select("id")
+        .eq("project_id", activeProject.id)
+        .eq("user_id", viewer.id)
+        .order("updated_at", { ascending: false })
+        .limit(1);
+
+      if (!isCurrent) return;
+      if (sessionError) {
+        setAgentError(sessionError.message);
+        setIsLoadingConversation(false);
+        return;
+      }
+
+      const session = sessions?.[0];
+      if (!session) {
+        setIsLoadingConversation(false);
+        return;
+      }
+
+      const { data: messages, error: messageError } = await supabase
+        .from("agent_messages")
+        .select("id, role, agent, content, suggestions, created_at")
+        .eq("session_id", session.id)
+        .order("created_at", { ascending: true });
+
+      if (!isCurrent) return;
+      if (messageError) {
+        setAgentError(messageError.message);
+      } else {
+        setAgentSessionId(session.id);
+        setAgentMessages(
+          (messages ?? [])
+            .filter((item) => item.role !== "system")
+            .map((item) => ({
+              id: item.id,
+              role: item.role === "student" ? "user" : "assistant",
+              agent: item.agent ?? undefined,
+              content: item.content,
+              suggestions: item.suggestions ?? [],
+              createdAt: item.created_at,
+            })) as AgentMessage[],
+        );
+      }
+      setIsLoadingConversation(false);
+    }
+
+    const task = window.setTimeout(() => void loadConversation(), 0);
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(task);
     };
   }, [activeProject, viewer.id]);
 
@@ -202,60 +314,51 @@ export default function PlatformApp({
     setFileError(null);
 
     try {
-      let savedFile: ProjectFile;
+      let savedFiles: ProjectFile[];
 
       if (viewer.id) {
-        const supabase = createClient();
-        const { data, error } = await supabase
-          .from("project_files")
-          .update({
-            content: draftContent,
-            version: activeFile.version + 1,
-          })
-          .eq("id", activeFile.id)
-          .eq("project_id", activeProject.id)
-          .select(
-            "id, project_id, path, content, version, created_at, updated_at",
-          )
-          .single();
+        const { data, error } = await createClient().rpc(
+          "save_project_changes",
+          {
+            p_project_id: activeProject.id,
+            p_actor_id: viewer.id,
+            p_changes: [{ path: activeFile.path, content: draftContent }],
+            p_title: `Edit ${activeFile.path}`,
+            p_source: "manual",
+          },
+        );
+        if (error) throw new Error(error.message);
+        savedFiles = (data ?? []) as ProjectFile[];
 
-        if (error) throw error;
-        savedFile = data as ProjectFile;
-
-        const nextProgress = Math.max(activeProject.progress, 45);
-        const { data: updatedProject } = await supabase
-          .from("projects")
-          .update({ status: "active", progress: nextProgress })
-          .eq("id", activeProject.id)
-          .eq("owner_id", viewer.id)
-          .select(
-            "id, owner_id, name, description, template, status, progress, created_at, updated_at",
-          )
-          .single();
-
-        if (updatedProject) {
-          const nextProject = updatedProject as StudentProject;
-          setProjects((current) =>
-            current.map((project) =>
-              project.id === nextProject.id ? nextProject : project,
-            ),
-          );
-          setSelectedProject(nextProject);
-        }
+        const nextProject: StudentProject = {
+          ...activeProject,
+          status: "active",
+          progress: Math.max(activeProject.progress, 45),
+          updated_at: new Date().toISOString(),
+        };
+        setProjects((current) =>
+          current.map((project) =>
+            project.id === nextProject.id ? nextProject : project,
+          ),
+        );
       } else {
-        savedFile = {
+        const savedFile = {
           ...activeFile,
           content: draftContent,
           version: activeFile.version + 1,
           updated_at: new Date().toISOString(),
         };
+        savedFiles = projectFiles.map((file) =>
+          file.id === savedFile.id ? savedFile : file,
+        );
       }
 
-      setProjectFiles((current) =>
-        current.map((file) => (file.id === savedFile.id ? savedFile : file)),
-      );
+      const savedFile =
+        savedFiles.find((file) => file.path === activeFile.path) ?? activeFile;
+      setProjectFiles(savedFiles);
       setDraftContent(savedFile.content);
       setPreviewKey((current) => current + 1);
+      await loadProjectVersions(activeProject.id);
     } catch (caughtError) {
       setFileError(
         caughtError instanceof Error
@@ -363,6 +466,7 @@ export default function PlatformApp({
         setAgentFileChanges((current) => current + payload.file_updates.length);
         setPreviewKey((current) => current + 1);
         setStudioTab("preview");
+        await loadProjectVersions(activeProject.id);
       }
     } catch (caughtError) {
       setAgentError(
@@ -381,6 +485,48 @@ export default function PlatformApp({
       composerRef.current?.focus();
       composerRef.current?.setSelectionRange(reply.length, reply.length);
     });
+  }
+
+  function startNewConversation() {
+    setAgentSessionId(null);
+    setAgentMessages([]);
+    setAgentError(null);
+    setMessage("");
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
+  async function restoreVersion(versionId: string) {
+    if (!viewer.id || !activeProject || restoringVersionId) return;
+    setRestoringVersionId(versionId);
+    setVersionError(null);
+    try {
+      const { data, error } = await createClient().rpc(
+        "restore_project_version",
+        {
+          p_version_id: versionId,
+          p_actor_id: viewer.id,
+        },
+      );
+      if (error) throw new Error(error.message);
+      const restoredFiles = (data ?? []) as ProjectFile[];
+      setProjectFiles(restoredFiles);
+      const restoredActive =
+        restoredFiles.find((file) => file.id === selectedFileId) ??
+        restoredFiles[0] ??
+        null;
+      setSelectedFileId(restoredActive?.id ?? null);
+      setDraftContent(restoredActive?.content ?? "");
+      setPreviewKey((current) => current + 1);
+      await loadProjectVersions(activeProject.id);
+    } catch (caughtError) {
+      setVersionError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Muse could not restore this version.",
+      );
+    } finally {
+      setRestoringVersionId(null);
+    }
   }
 
   return (
@@ -484,7 +630,7 @@ export default function PlatformApp({
             <section className="assistant-panel">
               <div className="panel-heading">
                 <div><span className="ai-orb"><SparklesIcon /></span><strong>Muse</strong><span className="online-dot" /></div>
-                <button className="icon-button small" aria-label="New conversation"><PlusIcon /></button>
+                <button className="icon-button small" aria-label="New conversation" onClick={startNewConversation}><PlusIcon /></button>
               </div>
 
               <div className="chat-scroll">
@@ -494,43 +640,33 @@ export default function PlatformApp({
                   <button onClick={() => setView("learn")}>Review</button>
                 </div>
 
-                <div className="date-label">TODAY</div>
-                <div className="user-message">
-                  <p>I want a game where kindergarteners match animals with their habitats.</p>
-                  <span>10:42 AM</span>
-                </div>
-
-                <div className="assistant-message">
-                  <div className="message-avatar"><SparklesIcon /></div>
-                  <div className="message-body">
-                    <p>That’s a lovely idea. Before we build, let’s make sure every choice helps your learner.</p>
-                    <div className="thinking-card">
-                      <div className="thinking-title"><span>Game plan</span><span className="ready-tag">Ready</span></div>
-                      <dl>
-                        <div><dt>Name</dt><dd>Habitat Heroes</dd></div>
-                        <div><dt>For</dt><dd>Ages 4–6</dd></div>
-                        <div><dt>Learning goal</dt><dd>Connect animals to where they live</dd></div>
-                        <div><dt>Player action</dt><dd>Choose an animal, then its habitat</dd></div>
-                        <div><dt>Feedback</dt><dd>Gentle hints + celebration</dd></div>
-                      </dl>
-                    </div>
-                    <p className="mentor-question">What would make a child want to try one more round?</p>
-                  </div>
-                </div>
-
-                {!agentMessages.length && (
-                  <div className="suggestion-block">
-                    <span>TRY A FOLLOW-UP</span>
-                    {promptStarters.map((prompt) => (
-                      <button key={prompt} onClick={() => void sendPrompt(prompt)}>{prompt}<ArrowUpRightIcon /></button>
-                    ))}
+                {isLoadingConversation && (
+                  <div className="conversation-loading">
+                    <ArrowPathIcon /><span>Restoring this project’s conversation…</span>
                   </div>
                 )}
+
+                {!isLoadingConversation && !agentMessages.length && (
+                  <div className="conversation-empty">
+                    <span><SparklesIcon /></span>
+                    <h3>What should we work on?</h3>
+                    <p>This conversation belongs to {activeProject?.name ?? "this project"} and will be here when you return.</p>
+                    <div className="suggestion-block">
+                      <span>START WITH A DIRECTION</span>
+                      {promptStarters.map((prompt) => (
+                        <button key={prompt} onClick={() => void sendPrompt(prompt)}>{prompt}<ArrowUpRightIcon /></button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {agentMessages.length > 0 && <div className="date-label">PROJECT CONVERSATION</div>}
 
                 {agentMessages.map((item, index) =>
                   item.role === "user" ? (
                     <div className="user-message compact" key={item.id}>
                       <p>{item.content}</p>
+                      {item.createdAt && <span>{messageTime(item.createdAt)}</span>}
                     </div>
                   ) : (
                     <div className="assistant-message" key={item.id}>
@@ -688,13 +824,35 @@ export default function PlatformApp({
 
               {studioTab === "changes" && (
                 <div className="changes-view">
-                  <div className="changes-header"><div><span className="github-mark"><CodeBracketSquareIcon /></span><div><strong>Version history</strong><small>Every change is saved — no Git knowledge needed.</small></div></div><button>Open in GitHub <ArrowTopRightOnSquareIcon /></button></div>
-                  <div className="timeline">
-                    <div className="timeline-item latest"><i /><div><span><strong>v3 · Add score and streak</strong><b>Current</b></span><p>3 files changed <em>+42</em> <del>−8</del></p><small>Created with Muse · just now</small></div><button aria-label="Version actions"><EllipsisHorizontalIcon /></button></div>
-                    <div className="timeline-item"><i /><div><strong>v2 · Improve animal feedback</strong><p>2 files changed <em>+18</em> <del>−4</del></p><small>Created with Muse · 6 minutes ago</small></div><button>Restore</button></div>
-                    <div className="timeline-item"><i /><div><strong>v1 · First playable version</strong><p>5 files changed <em>+126</em></p><small>Project created · 12 minutes ago</small></div><button>Restore</button></div>
+                  <div className="changes-header">
+                    <div><span className="history-mark"><ClockIcon /></span><div><strong>Version history</strong><small>Real snapshots from manual saves and Muse changes.</small></div></div>
                   </div>
-                  <div className="github-card"><span className="github-mark dark"><CodeBracketSquareIcon /></span><div><strong>Backed up to GitHub</strong><p>Your work is safely synced to <b>alex-lee/habitat-heroes</b></p></div><span className="sync-status"><CloudArrowUpIcon /> Synced</span></div>
+                  {isLoadingVersions ? (
+                    <div className="workspace-loading"><ArrowPathIcon /><span>Loading saved versions…</span></div>
+                  ) : versionSummaries.length ? (
+                    <div className="timeline">
+                      {versionSummaries.map((summary, index) => (
+                        <div className={index === 0 ? "timeline-item latest" : "timeline-item"} key={summary.id}>
+                          <i />
+                          <div>
+                            <span><strong>v{summary.version} · {summary.title}</strong>{index === 0 && <b>Current</b>}</span>
+                            <p>{summary.filesChanged} {summary.filesChanged === 1 ? "file" : "files"} changed <em>+{summary.additions}</em> <del>−{summary.deletions}</del></p>
+                            <small>{versionSourceLabel(summary.source)} · {relativeTime(summary.createdAt)}</small>
+                          </div>
+                          {index === 0 ? (
+                            <span className="current-version-check"><CheckIcon /></span>
+                          ) : (
+                            <button disabled={Boolean(restoringVersionId)} onClick={() => void restoreVersion(summary.id)}>
+                              {restoringVersionId === summary.id ? "Restoring…" : "Restore"}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="history-empty"><ClockIcon /><strong>No saved versions yet</strong><p>Save a file or ask Muse to make a change. The complete project snapshot will appear here.</p></div>
+                  )}
+                  {versionError && <p className="workspace-error" role="alert">{versionError}</p>}
                 </div>
               )}
             </section>
@@ -703,9 +861,13 @@ export default function PlatformApp({
           {showVersions && (
             <div className="popover versions-popover">
               <div><strong>Recent versions</strong><button onClick={() => setShowVersions(false)} aria-label="Close version history"><XMarkIcon /></button></div>
-              <button onClick={() => { setStudioTab("changes"); setShowVersions(false); }}><i className="green-dot" /><span><strong>v3 · Score and streak</strong><small>Just now · Current</small></span></button>
-              <button><i /><span><strong>v2 · Better feedback</strong><small>6 minutes ago</small></span></button>
-              <button><i /><span><strong>v1 · First version</strong><small>12 minutes ago</small></span></button>
+              {versionSummaries.slice(0, 3).map((summary, index) => (
+                <button key={summary.id} onClick={() => { setStudioTab("changes"); setShowVersions(false); }}>
+                  <i className={index === 0 ? "green-dot" : ""} />
+                  <span><strong>v{summary.version} · {summary.title}</strong><small>{relativeTime(summary.createdAt)}{index === 0 ? " · Current" : ""}</small></span>
+                </button>
+              ))}
+              {!versionSummaries.length && <p className="version-popover-empty">No saved versions yet.</p>}
               <button className="view-all" onClick={() => { setStudioTab("changes"); setShowVersions(false); }}>View all versions <ArrowRightIcon /></button>
             </div>
           )}
@@ -785,6 +947,103 @@ function roleLabel(role: Viewer["role"]) {
 
 function agentLabel(agent?: AgentMessage["agent"]) {
   return agent ? agent[0].toUpperCase() + agent.slice(1) : "Muse";
+}
+
+type VersionSummary = {
+  id: string;
+  version: number;
+  title: string;
+  source: ProjectVersion["source"];
+  createdAt: string;
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+};
+
+function summarizeVersions(versions: ProjectVersion[]): VersionSummary[] {
+  return versions.map((version, index) => {
+    const previous = versions[index + 1];
+    const previousFiles = new Map(
+      (previous?.project_version_files ?? []).map((file) => [file.path, file.content]),
+    );
+    const currentFiles = new Map(
+      version.project_version_files.map((file) => [file.path, file.content]),
+    );
+    const paths = new Set([...previousFiles.keys(), ...currentFiles.keys()]);
+    let filesChanged = 0;
+    let additions = 0;
+    let deletions = 0;
+
+    for (const path of paths) {
+      const before = previousFiles.get(path) ?? "";
+      const after = currentFiles.get(path) ?? "";
+      if (before === after) continue;
+      filesChanged += 1;
+      const lineChanges = countLineChanges(before, after);
+      additions += lineChanges.additions;
+      deletions += lineChanges.deletions;
+    }
+
+    return {
+      id: version.id,
+      version: version.version,
+      title: version.title,
+      source: version.source,
+      createdAt: version.created_at,
+      filesChanged,
+      additions,
+      deletions,
+    };
+  });
+}
+
+function countLineChanges(before: string, after: string) {
+  const beforeCounts = lineCounts(before);
+  const afterCounts = lineCounts(after);
+  const lines = new Set([...beforeCounts.keys(), ...afterCounts.keys()]);
+  let additions = 0;
+  let deletions = 0;
+  for (const line of lines) {
+    const previousCount = beforeCounts.get(line) ?? 0;
+    const currentCount = afterCounts.get(line) ?? 0;
+    additions += Math.max(0, currentCount - previousCount);
+    deletions += Math.max(0, previousCount - currentCount);
+  }
+  return { additions, deletions };
+}
+
+function lineCounts(content: string) {
+  const counts = new Map<string, number>();
+  if (!content) return counts;
+  for (const line of content.split("\n")) {
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function versionSourceLabel(source: ProjectVersion["source"]) {
+  if (source === "agent") return "Created with Muse";
+  if (source === "restore") return "Restored snapshot";
+  if (source === "initial") return "Project created";
+  return "Manual save";
+}
+
+function relativeTime(value: string) {
+  const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
+  const minutes = Math.round(seconds / 60);
+  if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
+  return formatter.format(Math.round(hours / 24), "day");
+}
+
+function messageTime(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function MarkdownMessage({ content }: { content: string }) {

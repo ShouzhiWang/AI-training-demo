@@ -171,7 +171,8 @@ test("Phase 3 persists project files and renders them in a sandbox", async () =>
   assert.doesNotMatch(migration, /security definer/i);
 
   assert.match(workspace, /\.from\("project_files"\)/);
-  assert.match(workspace, /\.update\(\{[\s\S]*?content: draftContent/);
+  assert.match(workspace, /\.rpc\(\s*"save_project_changes"/);
+  assert.match(workspace, /content: draftContent/);
   assert.match(workspace, /sandbox="allow-scripts"/);
   assert.match(workspace, /srcDoc=\{previewDocument\}/);
   assert.match(projectTypes, /buildPreviewDocument/);
@@ -209,6 +210,37 @@ test("Phase 4 routes authenticated agent requests and persists usage", async () 
   assert.match(agentApi, /Depends\(get_current_user\)/);
   assert.match(graph, /StateGraph/);
   assert.match(graph, /planner|coder|reviewer/);
+});
+
+test("project conversations and version history survive refreshes", async () => {
+  const [migration, workspace, projectTypes] = await Promise.all([
+    readFile(
+      new URL(
+        "../supabase/migrations/20260731084021_persist_project_history.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/_components/platform-app.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../lib/projects.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(migration, /create table public\.project_versions/i);
+  assert.match(migration, /create table public\.project_version_files/i);
+  assert.match(migration, /enable row level security/i);
+  assert.match(migration, /private\.apply_project_changes/i);
+  assert.match(migration, /private\.restore_project_snapshot/i);
+  assert.match(migration, /revoke update on table public\.project_files from authenticated/i);
+  assert.match(workspace, /\.from\("agent_sessions"\)/);
+  assert.match(workspace, /\.from\("agent_messages"\)/);
+  assert.match(workspace, /\.from\("project_versions"\)/);
+  assert.match(workspace, /\.rpc\(\s*"restore_project_version"/);
+  assert.doesNotMatch(workspace, /alex-lee\/habitat-heroes/);
+  assert.doesNotMatch(workspace, /v3 · Add score and streak/);
+  assert.match(projectTypes, /type ProjectVersion/);
 });
 
 test("Phase 5 educator portal is role-protected and exposes classroom views", async () => {

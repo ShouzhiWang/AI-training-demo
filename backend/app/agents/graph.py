@@ -50,7 +50,12 @@ def build_agent_graph(deepseek: DeepSeekService, projects: ProjectService):
         result, requested_updates = await deepseek.complete_coder(
             CODER_PROMPT, state["message"], state["files"]
         )
-        saved = projects.apply_file_updates(state["project_id"], requested_updates)
+        saved = projects.apply_file_updates(
+            state["project_id"],
+            state["user_id"],
+            state["message"],
+            requested_updates,
+        )
         return {
             "agent": "coder",
             "response": result.content,
@@ -87,4 +92,3 @@ def build_agent_graph(deepseek: DeepSeekService, projects: ProjectService):
     builder.add_edge("coder", END)
     builder.add_edge("reviewer", END)
     return builder.compile()
-

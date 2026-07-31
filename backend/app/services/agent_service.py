@@ -81,6 +81,7 @@ class AgentService:
                 "role": "assistant",
                 "agent": agent,
                 "content": state["response"],
+                "suggestions": result.suggestions,
             }
         ).execute()
         self.usage.record(

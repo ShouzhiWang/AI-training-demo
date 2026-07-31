@@ -26,6 +26,24 @@ export type ProjectFile = {
   updated_at: string;
 };
 
+export type ProjectVersionFile = {
+  id: string;
+  project_version_id: string;
+  path: string;
+  content: string;
+  file_version: number;
+};
+
+export type ProjectVersion = {
+  id: string;
+  project_id: string;
+  version: number;
+  title: string;
+  source: "initial" | "manual" | "agent" | "restore";
+  created_at: string;
+  project_version_files: ProjectVersionFile[];
+};
+
 export const demoProject: StudentProject = {
   id: "demo-habitat-heroes",
   owner_id: "demo-student",

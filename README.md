@@ -11,11 +11,12 @@ Implemented phases:
   learning progress and recent activity summaries, plus the Educational Game
   project-creation template.
 - Phase 3: persisted HTML/CSS/JavaScript project files, an editable workspace,
-  sandboxed live preview, file version increments, and a private
-  `project-assets` Storage bucket.
+  sandboxed live preview, transactional project snapshots with restore, and a
+  private `project-assets` Storage bucket.
 - Phase 4: a FastAPI service with a LangGraph Supervisor that routes to
   Planner, Coder, and Reviewer agents; authenticated chat, persisted sessions
-  and messages, safe project-file updates, and per-request AI usage tracking.
+  and messages that reload with each project, safe project-file updates, and
+  per-request AI usage tracking.
 - Phase 5: a role-protected educator dashboard for class metrics, student
   progress, project activity, and AI usage analytics.
 
@@ -60,6 +61,10 @@ the implementation plan calls for Educational Game first.
    immediately inside a sandboxed iframe.
 4. Click **Save file**, refresh, reopen the project, and confirm the edit and
    incremented version persist.
+5. Open **Changes** and confirm the save appears with its real file and line
+   counts.
+6. Restore the earlier snapshot, then confirm a new restore entry becomes
+   current and the previous file contents return.
 
 Text source files live in `public.project_files`. Binary images are reserved
 for the private `project-assets` bucket, using the object path
@@ -96,7 +101,11 @@ API, which validates it before reading or changing a project.
 2. Confirm the response identifies the Planner, Coder, or Reviewer.
 3. For a coding request, confirm the updated files appear immediately in the
    sandboxed Preview.
-4. Refresh the dashboard and confirm **AI assists** has increased.
+4. Refresh and reopen the project; confirm its conversation, rendered
+   Markdown, and response suggestions are still present.
+5. Confirm the Muse change also appears as a restorable entry under
+   **Changes**.
+6. Refresh the dashboard and confirm **AI assists** has increased.
 
 ## Phase 5 test flow
 
