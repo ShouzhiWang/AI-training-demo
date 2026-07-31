@@ -9,7 +9,6 @@ import {
   ArrowTopRightOnSquareIcon,
   ArrowUpIcon,
   ArrowUpRightIcon,
-  Bars3BottomLeftIcon,
   BookOpenIcon,
   CheckCircleIcon,
   CheckIcon,
@@ -39,11 +38,14 @@ import {
   StarIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
+import StudentDashboard from "@/app/_components/student-dashboard";
+import type { StudentProject } from "@/lib/projects";
 
 type View = "studio" | "learn" | "projects";
 type StudioTab = "preview" | "files" | "changes";
 
 export type Viewer = {
+  id?: string;
   name: string;
   email: string;
   role: "student" | "teacher" | "admin";
@@ -67,8 +69,18 @@ const animals = [
   { id: "lion", name: "Lion", icon: "🦁", habitat: "savanna" },
 ];
 
-export default function PlatformApp({ viewer }: { viewer: Viewer }) {
-  const [view, setView] = useState<View>("studio");
+export default function PlatformApp({
+  viewer,
+  initialProjects,
+}: {
+  viewer: Viewer;
+  initialProjects: StudentProject[];
+}) {
+  const [view, setView] = useState<View>("projects");
+  const [projects, setProjects] = useState(initialProjects);
+  const [selectedProject, setSelectedProject] = useState<StudentProject | null>(
+    initialProjects[0] ?? null,
+  );
   const [studioTab, setStudioTab] = useState<StudioTab>("preview");
   const [message, setMessage] = useState("");
   const [stage, setStage] = useState(1);
@@ -83,6 +95,17 @@ export default function PlatformApp({ viewer }: { viewer: Viewer }) {
     () => animals.find((animal) => animal.id === selectedAnimal) ?? animals[0],
     [selectedAnimal],
   );
+  const activeProject = selectedProject ?? projects[0] ?? null;
+
+  function openProject(project: StudentProject) {
+    setSelectedProject(project);
+    setView("studio");
+  }
+
+  function addProject(project: StudentProject) {
+    setProjects((current) => [project, ...current]);
+    setSelectedProject(project);
+  }
 
   function sendPrompt(text = message) {
     if (!text.trim()) return;
@@ -128,16 +151,40 @@ export default function PlatformApp({ viewer }: { viewer: Viewer }) {
         </nav>
 
         <div className="sidebar-section">
-          <div className="section-label"><span>MY PROJECTS</span><button className="bare-icon-button" aria-label="New project"><PlusIcon /></button></div>
-          <button className={view === "studio" ? "project-row active" : "project-row"} onClick={() => setView("studio")}>
-            <span className="project-icon">🌎</span>
-            <span><strong>Habitat Heroes</strong><small>Edited just now</small></span>
-            <EllipsisHorizontalIcon className="row-more" />
-          </button>
-          <button className="project-row muted">
-            <span className="project-icon lavender"><SparklesIcon /></span>
-            <span><strong>My first idea</strong><small>Draft</small></span>
-          </button>
+          <div className="section-label">
+            <span>MY PROJECTS</span>
+            <button
+              className="bare-icon-button"
+              aria-label="Go to project templates"
+              onClick={() => setView("projects")}
+            >
+              <PlusIcon />
+            </button>
+          </div>
+          {projects.slice(0, 4).map((project) => (
+            <button
+              className={
+                view === "studio" && activeProject?.id === project.id
+                  ? "project-row active"
+                  : "project-row"
+              }
+              key={project.id}
+              onClick={() => openProject(project)}
+            >
+              <span className="project-icon"><SparklesIcon /></span>
+              <span>
+                <strong>{project.name}</strong>
+                <small>{project.status === "draft" ? "Planning" : `${project.progress}% complete`}</small>
+              </span>
+              <EllipsisHorizontalIcon className="row-more" />
+            </button>
+          ))}
+          {!projects.length && (
+            <button className="project-row muted" onClick={() => setView("projects")}>
+              <span className="project-icon lavender"><PlusIcon /></span>
+              <span><strong>Create your first project</strong><small>Choose a template</small></span>
+            </button>
+          )}
         </div>
 
         <div className="sidebar-bottom">
@@ -161,8 +208,8 @@ export default function PlatformApp({ viewer }: { viewer: Viewer }) {
             <div className="title-group">
               <button className="back-button" onClick={() => setView("projects")} aria-label="Back to projects"><ChevronLeftIcon /></button>
               <div>
-                <div className="project-title">Habitat Heroes <span className="status-dot">Saved</span></div>
-                <div className="breadcrumb">Game prototype <span>/</span> main</div>
+                <div className="project-title">{activeProject?.name ?? "Untitled project"} <span className="status-dot">Saved</span></div>
+                <div className="breadcrumb">Educational game <span>/</span> main</div>
               </div>
             </div>
             <div className="top-actions">
@@ -366,7 +413,14 @@ export default function PlatformApp({ viewer }: { viewer: Viewer }) {
       )}
 
       {view === "learn" && <LearnView onContinue={() => setView("studio")} />}
-      {view === "projects" && <ProjectsView viewer={viewer} onOpen={() => setView("studio")} />}
+      {view === "projects" && (
+        <StudentDashboard
+          projects={projects}
+          viewer={viewer}
+          onCreate={addProject}
+          onOpen={openProject}
+        />
+      )}
     </main>
   );
 }
@@ -391,24 +445,6 @@ function LearnView({ onContinue }: { onContinue: () => void }) {
           <div className="coach-card"><span className="ai-orb large"><SparklesIcon /></span><h3>Muse’s coaching note</h3><p>A prompt is a starting point, not a test. You can improve it as you learn what your project needs.</p></div>
           <div className="course-list"><span>YOUR PATH</span><div className="done"><CheckIcon /> <p><strong>Ideas AI can help with</strong><small>Completed</small></p></div><div className="done"><CheckIcon /> <p><strong>Talk like a designer</strong><small>Completed</small></p></div><div className="current">3 <p><strong>The prompt recipe</strong><small>4 min</small></p></div><div>4 <p><strong>Review AI’s work</strong><small>5 min</small></p></div><div>5 <p><strong>Share and reflect</strong><small>3 min</small></p></div></div>
         </aside>
-      </div>
-    </section>
-  );
-}
-
-function ProjectsView({ viewer, onOpen }: { viewer: Viewer; onOpen: () => void }) {
-  return (
-    <section className="page-view projects-view">
-      <header className="projects-header"><div><span>Good afternoon, {viewer.name.split(" ")[0]}</span><h1>What will you create today?</h1></div><button className="button primary"><PlusIcon />New project</button></header>
-      <div className="project-hero">
-        <div><span className="eyebrow">CONTINUE CREATING</span><h2>Habitat Heroes</h2><p>A matching game that helps young learners discover where animals live.</p><div className="hero-meta"><span>🌎 Game prototype</span><span>3 versions</span><span>Edited just now</span></div><button className="button primary" onClick={onOpen}>Open studio →</button></div>
-        <div className="mini-game"><span className="mini-sun">☀</span><span className="mini-tree">♣</span><span className="mini-lion">🦁</span><span className="mini-wave">≈≈≈</span><b>Habitat Heroes</b></div>
-      </div>
-      <div className="section-title"><div><h2>Start with an idea</h2><p>Muse handles the setup. You focus on what you want to make.</p></div><button>View all templates <ArrowRightIcon /></button></div>
-      <div className="template-grid">
-        <button><span className="template-visual coral">🎮</span><div><strong>Game prototype</strong><p>Turn a learning idea into a playable game.</p><small>Popular · 10–15 min</small></div></button>
-        <button><span className="template-visual blue"><Bars3BottomLeftIcon /></span><div><strong>Research story</strong><p>Explore a question and share what you find.</p><small>15–20 min</small></div></button>
-        <button className="coming"><span className="template-visual green"><SparklesIcon /></span><div><strong>Start from scratch</strong><p>Describe anything you can imagine.</p><small>Coming soon</small></div></button>
       </div>
     </section>
   );

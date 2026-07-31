@@ -32,7 +32,8 @@ test("renders the Muse workspace in credential-free demo mode", async () => {
   const html = await response.text();
   assert.match(html, /Muse — Learn by making/i);
   assert.match(html, /Habitat Heroes/);
-  assert.match(html, /Tell Muse what you want to change/);
+  assert.match(html, /Student dashboard/i);
+  assert.match(html, /Educational Game/);
   assert.match(html, /Alex Lee/);
 });
 
@@ -113,4 +114,33 @@ test("profile migration keeps roles server-controlled and enables RLS", async ()
     migration,
     /revoke all on function private\.handle_new_user\(\) from public, anon, authenticated/i,
   );
+});
+
+test("Phase 2 projects are persisted behind owner-scoped RLS", async () => {
+  const [migration, dashboard] = await Promise.all([
+    readFile(
+      new URL(
+        "../supabase/migrations/20260731055948_create_student_projects.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/_components/student-dashboard.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(migration, /create table public\.projects/i);
+  assert.match(migration, /enable row level security/i);
+  assert.match(
+    migration,
+    /grant select, insert, update on table public\.projects to authenticated/i,
+  );
+  assert.match(migration, /with check \(\(select auth\.uid\(\)\) = owner_id\)/i);
+  assert.match(migration, /projects_owner_updated_at_idx/i);
+  assert.doesNotMatch(migration, /grant .*projects to anon/i);
+  assert.match(dashboard, /\.from\("projects"\)[\s\S]*?\.insert\(/);
+  assert.match(dashboard, /Educational Game/);
+  assert.match(dashboard, /Market Research Report/);
 });

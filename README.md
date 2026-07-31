@@ -1,16 +1,22 @@
 # Muse — AI-Native Learning Platform
 
 The repository is being implemented from
-`AI_Native_Learning_Platform_Full_Stack_Implementation_Plan.md`. The first
-full-stack slice adds Supabase email authentication, SSR session handling, and secure
-student/teacher/admin profiles while preserving the existing demo workspace.
+`AI_Native_Learning_Platform_Full_Stack_Implementation_Plan.md`.
+
+Implemented phases:
+
+- Phase 1: Supabase email authentication, SSR session handling, password
+  recovery, and secure student/teacher/admin profiles.
+- Phase 2: a student dashboard backed by owner-scoped Supabase projects,
+  learning progress and recent activity summaries, plus the Educational Game
+  project-creation template.
 
 ## Supabase auth setup
 
 1. Copy `.env.example` to `.env.local` and add the project URL and publishable
    key from Supabase.
-2. Apply `supabase/migrations/20260731030818_create_user_profiles.sql` to the
-   Supabase project.
+2. Apply the migrations in `supabase/migrations/` to the Supabase project with
+   `supabase db push --linked`.
 3. Enable Email under Supabase Authentication providers.
 4. Add `http://localhost:3000/auth/callback`,
    `http://localhost:3000/auth/confirm`, and the production callback URLs
@@ -24,6 +30,19 @@ student/teacher/admin profiles while preserving the existing demo workspace.
 
 Without Supabase environment variables, the root route stays in demo mode and
 the login page shows setup guidance.
+
+## Phase 2 test flow
+
+1. Sign in and open `/`.
+2. Confirm the student dashboard shows Projects, Active, Progress, and AI
+   assists summaries.
+3. Choose **Educational Game**, enter a project name and learning idea, and
+   create the project.
+4. Refresh the page and confirm the project still appears in the sidebar,
+   continue-creating card, and recent activity.
+
+The Market Research Report template is intentionally visible but unavailable;
+the implementation plan calls for Educational Game first.
 
 ## Original starter notes
 
