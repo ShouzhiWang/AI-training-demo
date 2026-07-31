@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 import { AcademicCapIcon, SparklesIcon } from "@heroicons/react/24/outline";
-import { GoogleSignInButton } from "@/app/login/google-sign-in-button";
+import { EmailAuthForm } from "@/app/login/email-auth-form";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function LoginPage() {
   const configured = isSupabaseConfigured();
+  const emailOtpEnabled =
+    process.env.NEXT_PUBLIC_EMAIL_OTP_ENABLED === "true";
 
   if (configured) {
     const supabase = await createClient();
@@ -31,15 +33,17 @@ export default async function LoginPage() {
       <section className="auth-panel">
         <div className="auth-card">
           <span className="auth-icon"><AcademicCapIcon /></span>
-          <h2>Welcome to Muse</h2>
-          <p>Sign in with your school or personal Google account to open your learning workspace.</p>
           {configured ? (
-            <GoogleSignInButton />
+            <EmailAuthForm emailOtpEnabled={emailOtpEnabled} />
           ) : (
-            <div className="auth-config-note">
-              Supabase credentials are not configured yet. Add them to
-              <code>.env.local</code> to enable Google sign-in.
-            </div>
+            <>
+              <h2>Supabase setup required</h2>
+              <p>Add the project’s public connection details to start using email authentication.</p>
+              <div className="auth-config-note">
+                Supabase credentials are not configured yet. Add them to
+                <code>.env.local</code> to enable email sign-in.
+              </div>
+            </>
           )}
           <small className="auth-terms">By continuing, you agree to use AI thoughtfully and test what you create.</small>
         </div>

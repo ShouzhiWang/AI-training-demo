@@ -2,7 +2,7 @@
 
 The repository is being implemented from
 `AI_Native_Learning_Platform_Full_Stack_Implementation_Plan.md`. The first
-full-stack slice adds Supabase Google OAuth, SSR session handling, and secure
+full-stack slice adds Supabase email authentication, SSR session handling, and secure
 student/teacher/admin profiles while preserving the existing demo workspace.
 
 ## Supabase auth setup
@@ -11,9 +11,16 @@ student/teacher/admin profiles while preserving the existing demo workspace.
    key from Supabase.
 2. Apply `supabase/migrations/20260731030818_create_user_profiles.sql` to the
    Supabase project.
-3. Enable Google under Supabase Authentication providers.
-4. Add `http://localhost:3000/auth/callback` and the production callback URL
+3. Enable Email under Supabase Authentication providers.
+4. Add `http://localhost:3000/auth/callback`,
+   `http://localhost:3000/auth/confirm`, and the production callback URLs
    to the Supabase redirect allow list.
+5. To send email OTPs instead of magic links, configure custom SMTP (or a
+   Supabase plan that supports hosted template changes), then copy the files
+   in `supabase/templates/` into the hosted Confirmation, Magic Link, and
+   Recovery templates. The default free-tier mailer does not allow template
+   modification through config-as-code. Set
+   `NEXT_PUBLIC_EMAIL_OTP_ENABLED=true` after the OTP template is active.
 
 Without Supabase environment variables, the root route stays in demo mode and
 the login page shows setup guidance.

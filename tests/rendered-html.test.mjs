@@ -41,12 +41,12 @@ test("renders actionable Supabase setup guidance on the login page", async () =>
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Welcome to Muse/);
+  assert.match(html, /Supabase setup required/);
   assert.match(html, /Supabase credentials are not configured yet/);
   assert.match(html, /\.env\.local/);
 });
 
-test("OAuth callback rejects external next destinations", async () => {
+test("auth callback rejects external next destinations", async () => {
   const response = await fetchApp(
     "/auth/callback?next=https%3A%2F%2Fevil.example",
   );
@@ -59,6 +59,33 @@ test("OAuth callback rejects external next destinations", async () => {
     response.headers.get("cache-control") ?? "",
     /private.*no-store/,
   );
+});
+
+test("email auth covers password, sign-up, OTP, and recovery flows", async () => {
+  const [form, resetForm, confirmRoute] = await Promise.all([
+    readFile(
+      new URL("../app/login/email-auth-form.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/reset-password/password-reset-form.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/auth/confirm/route.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(form, /signInWithPassword/);
+  assert.match(form, /\.auth\.signUp/);
+  assert.match(form, /signInWithOtp/);
+  assert.match(form, /verifyOtp/);
+  assert.match(form, /resetPasswordForEmail/);
+  assert.match(resetForm, /updateUser\(\{\s*password\s*\}\)/);
+  assert.match(confirmRoute, /token_hash/);
+  assert.match(confirmRoute, /type === "recovery"/);
+  assert.doesNotMatch(form, /signInWithOAuth|google/i);
 });
 
 test("profile migration keeps roles server-controlled and enables RLS", async () => {
