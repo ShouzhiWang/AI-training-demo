@@ -43,3 +43,9 @@ next-env.d.ts
 /work/
 /.playwright-mcp/
 *.tsbuildinfo
+
+# Python backend
+backend/.venv/
+backend/.pytest_cache/
+**/__pycache__/
+*.py[cod]

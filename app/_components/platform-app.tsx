@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AcademicCapIcon,
   ArrowLeftIcon,
@@ -9,8 +15,8 @@ import {
   ArrowTopRightOnSquareIcon,
   ArrowUpIcon,
   ArrowUpRightIcon,
-  CheckCircleIcon,
   CheckIcon,
+  ChartBarSquareIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -35,6 +41,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import StudentDashboard from "@/app/_components/student-dashboard";
+import AdminDashboard from "@/app/_components/admin-dashboard";
 import {
   buildPreviewDocument,
   demoProjectFiles,
@@ -43,8 +50,15 @@ import {
 } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 
-type View = "studio" | "learn" | "projects";
+type View = "studio" | "learn" | "projects" | "admin";
 type StudioTab = "preview" | "files" | "changes";
+type AgentMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  agent?: "supervisor" | "planner" | "coder" | "reviewer";
+  suggestions?: string[];
+};
 
 export type Viewer = {
   id?: string;
@@ -80,10 +94,15 @@ export default function PlatformApp({
   const [fileError, setFileError] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
   const [message, setMessage] = useState("");
-  const [stage, setStage] = useState(1);
+  const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [agentSessionId, setAgentSessionId] = useState<string | null>(null);
+  const [isAgentThinking, setIsAgentThinking] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentFileChanges, setAgentFileChanges] = useState(0);
   const [isPublished, setIsPublished] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const activeProject = selectedProject ?? projects[0] ?? null;
   const activeFile =
@@ -248,15 +267,120 @@ export default function PlatformApp({
     }
   }
 
-  function sendPrompt(text = message) {
-    if (!text.trim()) return;
+  async function sendPrompt(text = message) {
+    const prompt = text.trim();
+    if (!prompt || !activeProject || isAgentThinking) return;
     setMessage("");
-    setStage(2);
+    setAgentError(null);
+    setAgentMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "user", content: prompt },
+    ]);
+    setIsAgentThinking(true);
+
+    try {
+      if (!viewer.id) {
+        await new Promise((resolve) => window.setTimeout(resolve, 450));
+        setAgentMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            agent: "planner",
+            content:
+              "I’ve turned that into a clear learning goal. Connect Supabase and the FastAPI service to let the Planner, Coder, and Reviewer work on the project files.",
+            suggestions: [
+              "Help me choose a learning goal",
+              "Ask me one question at a time",
+            ],
+          },
+        ]);
+        return;
+      }
+
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Your session expired. Please sign in again.");
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/agent/chat`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            project_id: activeProject.id,
+            message: prompt,
+            session_id: agentSessionId,
+          }),
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.detail ?? "Muse could not complete that request.");
+      }
+
+      setAgentSessionId(payload.session_id);
+      setAgentMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          agent: payload.agent,
+          content: payload.message,
+          suggestions: payload.suggestions ?? [],
+        },
+      ]);
+
+      if (payload.file_updates?.length) {
+        const updates = new Map<string, { content: string; version: number }>(
+          payload.file_updates.map(
+            (file: { path: string; content: string; version: number }) => [
+              file.path,
+              file,
+            ],
+          ),
+        );
+        setProjectFiles((current) =>
+          current.map((file) => {
+            const update = updates.get(file.path);
+            return update
+              ? {
+                  ...file,
+                  content: update.content,
+                  version: update.version,
+                  updated_at: new Date().toISOString(),
+                }
+              : file;
+          }),
+        );
+        const activeUpdate = activeFile ? updates.get(activeFile.path) : null;
+        if (activeUpdate) setDraftContent(activeUpdate.content);
+        setAgentFileChanges((current) => current + payload.file_updates.length);
+        setPreviewKey((current) => current + 1);
+        setStudioTab("preview");
+      }
+    } catch (caughtError) {
+      setAgentError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Muse could not complete that request.",
+      );
+    } finally {
+      setIsAgentThinking(false);
+    }
   }
 
-  function applyChange() {
-    setStage(3);
-    setStudioTab("preview");
+  function fillSuggestedReply(reply: string) {
+    setMessage(reply);
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(reply.length, reply.length);
+    });
   }
 
   return (
@@ -275,6 +399,11 @@ export default function PlatformApp({
             <AcademicCapIcon className="nav-icon" /> Prompting 101
             <span className="nav-pill">3/5</span>
           </button>
+          {viewer.role !== "student" && (
+            <button className={view === "admin" ? "nav-item active" : "nav-item"} onClick={() => setView("admin")}>
+              <ChartBarSquareIcon className="nav-icon" /> Educator dashboard
+            </button>
+          )}
         </nav>
 
         <div className="sidebar-section">
@@ -389,49 +518,75 @@ export default function PlatformApp({
                   </div>
                 </div>
 
-                {stage === 1 && (
+                {!agentMessages.length && (
                   <div className="suggestion-block">
                     <span>TRY A FOLLOW-UP</span>
                     {promptStarters.map((prompt) => (
-                      <button key={prompt} onClick={() => sendPrompt(prompt)}>{prompt}<ArrowUpRightIcon /></button>
+                      <button key={prompt} onClick={() => void sendPrompt(prompt)}>{prompt}<ArrowUpRightIcon /></button>
                     ))}
                   </div>
                 )}
 
-                {stage >= 2 && (
-                  <>
-                    <div className="user-message compact">
-                      <p>Add a score and streak so players feel progress.</p>
-                      <span>10:44 AM</span>
+                {agentMessages.map((item, index) =>
+                  item.role === "user" ? (
+                    <div className="user-message compact" key={item.id}>
+                      <p>{item.content}</p>
                     </div>
-                    <div className="assistant-message">
+                  ) : (
+                    <div className="assistant-message" key={item.id}>
                       <div className="message-avatar"><SparklesIcon /></div>
-                      <div className="message-body">
-                        <p>Good instinct. A visible score rewards progress without interrupting play. I’ll add:</p>
-                        <ul className="change-list">
-                          <li><CheckCircleIcon /> 10 points for a correct match</li>
-                          <li><CheckCircleIcon /> A friendly progress streak</li>
-                          <li><CheckCircleIcon /> Encouraging, specific feedback</li>
-                        </ul>
-                        {stage === 2 && <button className="apply-button" onClick={applyChange}><SparklesIcon /> Apply 3 changes</button>}
-                        {stage >= 3 && <div className="applied-note"><span><CheckIcon /></span><div><strong>Changes applied</strong><small>Saved as version 3 · just now</small></div><button onClick={() => setStudioTab("changes")}>View <ChevronRightIcon /></button></div>}
+                      <div className="message-body agent-reply">
+                        <span className={`agent-label ${item.agent ?? "supervisor"}`}>
+                          {agentLabel(item.agent)}
+                        </span>
+                        <MarkdownMessage content={item.content} />
+                        {index === agentMessages.length - 1 && Boolean(item.suggestions?.length) && (
+                          <div className="reply-options" aria-label="Suggested replies">
+                            <span>CHOOSE A REPLY OR WRITE YOUR OWN</span>
+                            {item.suggestions?.map((suggestion) => (
+                              <button key={suggestion} onClick={() => fillSuggestedReply(suggestion)}>
+                                {suggestion}<ArrowUpRightIcon />
+                              </button>
+                            ))}
+                            <button className="custom-reply" onClick={() => fillSuggestedReply("")}>
+                              Write my own response
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </>
+                  ),
                 )}
+                {isAgentThinking && (
+                  <div className="assistant-message agent-thinking">
+                    <div className="message-avatar"><SparklesIcon /></div>
+                    <div className="message-body">
+                      <span className="agent-label supervisor">Supervisor</span>
+                      <p>Muse is choosing the right specialist…</p>
+                    </div>
+                  </div>
+                )}
+                {agentFileChanges > 0 && (
+                  <div className="applied-note agent-applied">
+                    <span><CheckIcon /></span>
+                    <div><strong>Project files updated</strong><small>{agentFileChanges} AI-assisted changes saved</small></div>
+                    <button onClick={() => setStudioTab("changes")}>View <ChevronRightIcon /></button>
+                  </div>
+                )}
+                {agentError && <p className="workspace-error agent-error" role="alert">{agentError}</p>}
               </div>
 
               <div className="composer-wrap">
                 <div className="composer">
-                  <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Tell Muse what you want to change…" onKeyDown={(event) => {
+                  <textarea ref={composerRef} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Tell Muse what you want to change…" onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
-                      sendPrompt();
+                      void sendPrompt();
                     }
-                  }} />
+                  }} disabled={isAgentThinking || !activeProject} />
                   <div className="composer-footer">
                     <div><button className="composer-icon" title="Attach"><PaperClipIcon /></button><span>Plan first</span><button className="toggle on" aria-label="Plan first enabled"><i /></button></div>
-                    <button className="send-button" onClick={() => sendPrompt()} aria-label="Send message"><ArrowUpIcon /></button>
+                    <button className="send-button" disabled={isAgentThinking || !message.trim()} onClick={() => void sendPrompt()} aria-label="Send message"><ArrowUpIcon /></button>
                   </div>
                 </div>
                 <span className="composer-hint">Muse can make mistakes. Test your game before sharing.</span>
@@ -444,7 +599,7 @@ export default function PlatformApp({
                   {(["preview", "files", "changes"] as StudioTab[]).map((tab) => (
                     <button key={tab} className={studioTab === tab ? "active" : ""} onClick={() => setStudioTab(tab)}>
                       {tab === "preview" ? <EyeIcon /> : tab === "files" ? <DocumentIcon /> : <ClockIcon />} {tab[0].toUpperCase() + tab.slice(1)}
-                      {tab === "changes" && stage >= 3 && <span className="change-badge">3</span>}
+                      {tab === "changes" && agentFileChanges > 0 && <span className="change-badge">{agentFileChanges}</span>}
                     </button>
                   ))}
                 </div>
@@ -577,6 +732,7 @@ export default function PlatformApp({
       )}
 
       {view === "learn" && <LearnView onContinue={() => setView("studio")} />}
+      {view === "admin" && <AdminDashboard viewer={viewer} />}
       {view === "projects" && (
         <StudentDashboard
           projects={projects}
@@ -625,6 +781,104 @@ function initials(name: string) {
 
 function roleLabel(role: Viewer["role"]) {
   return role[0].toUpperCase() + role.slice(1);
+}
+
+function agentLabel(agent?: AgentMessage["agent"]) {
+  return agent ? agent[0].toUpperCase() + agent.slice(1) : "Muse";
+}
+
+function MarkdownMessage({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const Heading = heading[1].length === 1 ? "h3" : "h4";
+      blocks.push(<Heading key={`heading-${index}`}>{renderInlineMarkdown(heading[2])}</Heading>);
+      index += 1;
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
+        items.push(
+          <li key={`bullet-${index}`}>
+            {renderInlineMarkdown(lines[index].trim().replace(/^[-*]\s+/, ""))}
+          </li>,
+        );
+        index += 1;
+      }
+      blocks.push(<ul key={`list-${index}`}>{items}</ul>);
+      continue;
+    }
+
+    if (/^\d+[.)]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (index < lines.length && /^\d+[.)]\s+/.test(lines[index].trim())) {
+        items.push(
+          <li key={`number-${index}`}>
+            {renderInlineMarkdown(lines[index].trim().replace(/^\d+[.)]\s+/, ""))}
+          </li>,
+        );
+        index += 1;
+      }
+      blocks.push(<ol key={`ordered-${index}`}>{items}</ol>);
+      continue;
+    }
+
+    if (line.startsWith("> ")) {
+      blocks.push(
+        <blockquote key={`quote-${index}`}>{renderInlineMarkdown(line.slice(2))}</blockquote>,
+      );
+      index += 1;
+      continue;
+    }
+
+    const paragraph: string[] = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isMarkdownBlock(lines[index].trim())) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push(
+      <p key={`paragraph-${index}`}>{renderInlineMarkdown(paragraph.join(" "))}</p>,
+    );
+  }
+
+  return <div className="markdown-message">{blocks}</div>;
+}
+
+function isMarkdownBlock(line: string) {
+  return /^(#{1,3}\s+|[-*]\s+|\d+[.)]\s+|>\s+)/.test(line);
+}
+
+function renderInlineMarkdown(text: string) {
+  const tokenPattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
+  return text.split(tokenPattern).filter(Boolean).map((token, index) => {
+    if (token.startsWith("**") && token.endsWith("**")) {
+      return <strong key={index}>{token.slice(2, -2)}</strong>;
+    }
+    if (token.startsWith("`") && token.endsWith("`")) {
+      return <code key={index}>{token.slice(1, -1)}</code>;
+    }
+    if (token.startsWith("*") && token.endsWith("*")) {
+      return <em key={index}>{token.slice(1, -1)}</em>;
+    }
+    const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+    if (link) {
+      return <a href={link[2]} key={index} rel="noreferrer" target="_blank">{link[1]}</a>;
+    }
+    return token;
+  });
 }
 
 function projectSlug(name: string) {

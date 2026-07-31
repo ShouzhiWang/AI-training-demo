@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, type ReactNode, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   AcademicCapIcon,
   ArrowRightIcon,
@@ -37,6 +37,22 @@ export default function StudentDashboard({
   const [idea, setIdea] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiAssists, setAiAssists] = useState(0);
+
+  useEffect(() => {
+    if (!viewer.id) return;
+    let isCurrent = true;
+    async function loadAiUsage() {
+      const { count } = await createClient()
+        .from("ai_usage")
+        .select("id", { count: "exact", head: true });
+      if (isCurrent) setAiAssists(count ?? 0);
+    }
+    void loadAiUsage();
+    return () => {
+      isCurrent = false;
+    };
+  }, [viewer.id]);
 
   const activeProjects = projects.filter(
     (project) => project.status === "active",
@@ -150,8 +166,8 @@ export default function StudentDashboard({
         <DashboardStat
           icon={<SparklesIcon />}
           label="AI assists"
-          value="0"
-          detail="tracking starts in Phase 4"
+          value={String(aiAssists)}
+          detail="guided agent requests"
         />
       </div>
 

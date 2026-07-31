@@ -176,3 +176,58 @@ test("Phase 3 persists project files and renders them in a sandbox", async () =>
   assert.match(workspace, /srcDoc=\{previewDocument\}/);
   assert.match(projectTypes, /buildPreviewDocument/);
 });
+
+test("Phase 4 routes authenticated agent requests and persists usage", async () => {
+  const [migration, workspace, agentApi, graph] = await Promise.all([
+    readFile(
+      new URL(
+        "../supabase/migrations/20260731065014_create_agent_sessions_and_usage.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/_components/platform-app.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../backend/app/api/agents.py", import.meta.url), "utf8"),
+    readFile(new URL("../backend/app/agents/graph.py", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(migration, /create table public\.agent_sessions/i);
+  assert.match(migration, /create table public\.agent_messages/i);
+  assert.match(migration, /create table public\.ai_usage/i);
+  assert.match(migration, /enable row level security/i);
+  assert.match(migration, /Students can read their own AI usage/i);
+  assert.doesNotMatch(migration, /grant insert .*authenticated/i);
+  assert.match(workspace, /\/agent\/chat/);
+  assert.match(workspace, /Authorization: `Bearer \$\{session\.access_token\}`/);
+  assert.match(workspace, /payload\.file_updates/);
+  assert.match(workspace, /MarkdownMessage/);
+  assert.match(workspace, /Suggested replies/);
+  assert.match(workspace, /payload\.suggestions/);
+  assert.match(agentApi, /Depends\(get_current_user\)/);
+  assert.match(graph, /StateGraph/);
+  assert.match(graph, /planner|coder|reviewer/);
+});
+
+test("Phase 5 educator portal is role-protected and exposes classroom views", async () => {
+  const [dashboard, adminApi, dependencies] = await Promise.all([
+    readFile(
+      new URL("../app/_components/admin-dashboard.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../backend/app/api/admin.py", import.meta.url), "utf8"),
+    readFile(new URL("../backend/app/dependencies.py", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(dashboard, /\/admin\/\$\{endpoint\}/);
+  assert.match(dashboard, /AI analytics/);
+  assert.match(dashboard, /StudentTable/);
+  assert.match(adminApi, /Depends\(require_educator\)/);
+  assert.match(adminApi, /\/stats/);
+  assert.match(adminApi, /\/students/);
+  assert.match(adminApi, /\/projects/);
+  assert.match(adminApi, /\/usage/);
+  assert.match(dependencies, /Teacher or admin role required/);
+});

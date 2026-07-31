@@ -13,6 +13,11 @@ Implemented phases:
 - Phase 3: persisted HTML/CSS/JavaScript project files, an editable workspace,
   sandboxed live preview, file version increments, and a private
   `project-assets` Storage bucket.
+- Phase 4: a FastAPI service with a LangGraph Supervisor that routes to
+  Planner, Coder, and Reviewer agents; authenticated chat, persisted sessions
+  and messages, safe project-file updates, and per-request AI usage tracking.
+- Phase 5: a role-protected educator dashboard for class metrics, student
+  progress, project activity, and AI usage analytics.
 
 ## Supabase auth setup
 
@@ -59,6 +64,48 @@ the implementation plan calls for Educational Game first.
 Text source files live in `public.project_files`. Binary images are reserved
 for the private `project-assets` bucket, using the object path
 `<project-id>/<filename>` so Storage RLS can enforce project ownership.
+
+## Phase 4/5 backend setup
+
+The browser never receives the Supabase service-role key or DeepSeek key.
+Configure them only in the Python service:
+
+```bash
+cp backend/.env.example backend/.env
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload
+```
+
+Fill `backend/.env` with:
+
+- `SUPABASE_URL`: the same project URL used by the frontend
+- `SUPABASE_PUBLISHABLE_KEY`: the browser-safe publishable key
+- `SUPABASE_SERVICE_KEY`: the server-only Supabase service-role key
+- `DEEPSEEK_API_KEY`: the model API key; without it, the API uses a safe
+  development mentor response and does not modify files
+
+Keep the Next.js app running on port 3000 and the API on port 8000. The
+frontend sends the signed-in user's short-lived Supabase access token to the
+API, which validates it before reading or changing a project.
+
+## Phase 4 test flow
+
+1. Open a project and ask Muse to plan an idea, change a file, or review the
+   learning experience.
+2. Confirm the response identifies the Planner, Coder, or Reviewer.
+3. For a coding request, confirm the updated files appear immediately in the
+   sandboxed Preview.
+4. Refresh the dashboard and confirm **AI assists** has increased.
+
+## Phase 5 test flow
+
+1. Change a test profile's role to `teacher` or `admin` using the Supabase
+   dashboard or a trusted server-side SQL session.
+2. Sign in as that account and open **Educator dashboard** in the sidebar.
+3. Verify Overview, Students, Projects, and AI analytics load.
+4. Sign in as a student and confirm the educator API endpoints return 403 and
+   the educator navigation is hidden.
 
 ## Original starter notes
 
