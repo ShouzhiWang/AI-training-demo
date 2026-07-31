@@ -268,13 +268,16 @@ export function EmailAuthForm({ emailOtpEnabled }: { emailOtpEnabled: boolean })
           >
             <KeyIcon /> Email me a code
           </button>
-          <p className="auth-switch">
-            New to Muse?{" "}
-            <button onClick={() => changeMode("sign-up")} type="button">
-              Create an account
-            </button>
-          </p>
         </>
+      )}
+
+      {mode === "sign-in" && (
+        <p className="auth-switch">
+          New to Muse?{" "}
+          <button onClick={() => changeMode("sign-up")} type="button">
+            Create an account
+          </button>
+        </p>
       )}
 
       {mode === "sign-up" && (

@@ -82,6 +82,11 @@ test("email auth covers password, sign-up, OTP, and recovery flows", async () =>
   assert.match(form, /signInWithOtp/);
   assert.match(form, /verifyOtp/);
   assert.match(form, /resetPasswordForEmail/);
+  assert.match(
+    form,
+    /\{mode === "sign-in" && \(\s*<p className="auth-switch">[\s\S]*?Create an account/,
+    "registration must remain visible when optional email OTP is disabled",
+  );
   assert.match(resetForm, /updateUser\(\{\s*password\s*\}\)/);
   assert.match(confirmRoute, /token_hash/);
   assert.match(confirmRoute, /type === "recovery"/);
