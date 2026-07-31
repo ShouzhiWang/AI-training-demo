@@ -1,4 +1,24 @@
-# vinext-starter
+# Muse — AI-Native Learning Platform
+
+The repository is being implemented from
+`AI_Native_Learning_Platform_Full_Stack_Implementation_Plan.md`. The first
+full-stack slice adds Supabase Google OAuth, SSR session handling, and secure
+student/teacher/admin profiles while preserving the existing demo workspace.
+
+## Supabase auth setup
+
+1. Copy `.env.example` to `.env.local` and add the project URL and publishable
+   key from Supabase.
+2. Apply `supabase/migrations/20260731030818_create_user_profiles.sql` to the
+   Supabase project.
+3. Enable Google under Supabase Authentication providers.
+4. Add `http://localhost:3000/auth/callback` and the production callback URL
+   to the Supabase redirect allow list.
+
+Without Supabase environment variables, the root route stays in demo mode and
+the login page shows setup guidance.
+
+## Original starter notes
 
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
