@@ -140,7 +140,39 @@ test("Phase 2 projects are persisted behind owner-scoped RLS", async () => {
   assert.match(migration, /with check \(\(select auth\.uid\(\)\) = owner_id\)/i);
   assert.match(migration, /projects_owner_updated_at_idx/i);
   assert.doesNotMatch(migration, /grant .*projects to anon/i);
-  assert.match(dashboard, /\.from\("projects"\)[\s\S]*?\.insert\(/);
+  assert.match(dashboard, /\.rpc\("create_educational_game_project"/);
   assert.match(dashboard, /Educational Game/);
   assert.match(dashboard, /Market Research Report/);
+});
+
+test("Phase 3 persists project files and renders them in a sandbox", async () => {
+  const [migration, workspace, projectTypes] = await Promise.all([
+    readFile(
+      new URL(
+        "../supabase/migrations/20260731063730_create_project_workspace_files.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/_components/platform-app.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../lib/projects.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(migration, /create table public\.project_files/i);
+  assert.match(migration, /unique \(project_id, path\)/i);
+  assert.match(migration, /enable row level security/i);
+  assert.match(migration, /projects\.owner_id = \(select auth\.uid\(\)\)/i);
+  assert.match(migration, /security invoker/i);
+  assert.match(migration, /insert into storage\.buckets/i);
+  assert.match(migration, /bucket_id = 'project-assets'/i);
+  assert.doesNotMatch(migration, /security definer/i);
+
+  assert.match(workspace, /\.from\("project_files"\)/);
+  assert.match(workspace, /\.update\(\{[\s\S]*?content: draftContent/);
+  assert.match(workspace, /sandbox="allow-scripts"/);
+  assert.match(workspace, /srcDoc=\{previewDocument\}/);
+  assert.match(projectTypes, /buildPreviewDocument/);
 });

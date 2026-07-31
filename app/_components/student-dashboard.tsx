@@ -76,18 +76,10 @@ export default function StudentDashboard({
       if (viewer.id) {
         const supabase = createClient();
         const { data, error: createError } = await supabase
-          .from("projects")
-          .insert({
-            owner_id: viewer.id,
-            name: name.trim(),
-            description: idea.trim(),
-            template: "educational_game",
-            status: "draft",
-            progress: 10,
+          .rpc("create_educational_game_project", {
+            p_name: name.trim(),
+            p_description: idea.trim(),
           })
-          .select(
-            "id, owner_id, name, description, template, status, progress, created_at, updated_at",
-          )
           .single();
 
         if (createError) throw createError;

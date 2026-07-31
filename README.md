@@ -10,6 +10,9 @@ Implemented phases:
 - Phase 2: a student dashboard backed by owner-scoped Supabase projects,
   learning progress and recent activity summaries, plus the Educational Game
   project-creation template.
+- Phase 3: persisted HTML/CSS/JavaScript project files, an editable workspace,
+  sandboxed live preview, file version increments, and a private
+  `project-assets` Storage bucket.
 
 ## Supabase auth setup
 
@@ -43,6 +46,19 @@ the login page shows setup guidance.
 
 The Market Research Report template is intentionally visible but unavailable;
 the implementation plan calls for Educational Game first.
+
+## Phase 3 test flow
+
+1. Open an Educational Game project from the dashboard.
+2. Switch between **Preview** and **Files**.
+3. Edit `index.html`, `style.css`, or `script.js`; Preview reflects the draft
+   immediately inside a sandboxed iframe.
+4. Click **Save file**, refresh, reopen the project, and confirm the edit and
+   incremented version persist.
+
+Text source files live in `public.project_files`. Binary images are reserved
+for the private `project-assets` bucket, using the object path
+`<project-id>/<filename>` so Storage RLS can enforce project ownership.
 
 ## Original starter notes
 

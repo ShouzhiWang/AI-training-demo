@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AcademicCapIcon,
   ArrowLeftIcon,
@@ -9,7 +9,6 @@ import {
   ArrowTopRightOnSquareIcon,
   ArrowUpIcon,
   ArrowUpRightIcon,
-  BookOpenIcon,
   CheckCircleIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -17,14 +16,12 @@ import {
   ChevronRightIcon,
   ClockIcon,
   CloudArrowUpIcon,
-  CodeBracketIcon,
   CodeBracketSquareIcon,
   ComputerDesktopIcon,
   DevicePhoneMobileIcon,
   DocumentIcon,
   EllipsisHorizontalIcon,
   EyeIcon,
-  FolderIcon,
   GlobeAltIcon,
   HomeIcon,
   LightBulbIcon,
@@ -35,11 +32,16 @@ import {
   RocketLaunchIcon,
   ShareIcon,
   SparklesIcon,
-  StarIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import StudentDashboard from "@/app/_components/student-dashboard";
-import type { StudentProject } from "@/lib/projects";
+import {
+  buildPreviewDocument,
+  demoProjectFiles,
+  type ProjectFile,
+  type StudentProject,
+} from "@/lib/projects";
+import { createClient } from "@/lib/supabase/client";
 
 type View = "studio" | "learn" | "projects";
 type StudioTab = "preview" | "files" | "changes";
@@ -57,18 +59,6 @@ const promptStarters = [
   "Add an ocean habitat",
 ];
 
-const habitats = [
-  { id: "forest", name: "Forest", icon: "🌲", color: "#e7f4e6" },
-  { id: "ocean", name: "Ocean", icon: "🌊", color: "#e4f3f8" },
-  { id: "savanna", name: "Savanna", icon: "☀️", color: "#fff1ce" },
-];
-
-const animals = [
-  { id: "fox", name: "Fox", icon: "🦊", habitat: "forest" },
-  { id: "dolphin", name: "Dolphin", icon: "🐬", habitat: "ocean" },
-  { id: "lion", name: "Lion", icon: "🦁", habitat: "savanna" },
-];
-
 export default function PlatformApp({
   viewer,
   initialProjects,
@@ -82,20 +72,94 @@ export default function PlatformApp({
     initialProjects[0] ?? null,
   );
   const [studioTab, setStudioTab] = useState<StudioTab>("preview");
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [draftContent, setDraftContent] = useState("");
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [isSavingFile, setIsSavingFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [previewKey, setPreviewKey] = useState(0);
   const [message, setMessage] = useState("");
   const [stage, setStage] = useState(1);
-  const [selectedAnimal, setSelectedAnimal] = useState("fox");
-  const [score, setScore] = useState(0);
-  const [feedback, setFeedback] = useState("Choose the fox’s habitat");
   const [isPublished, setIsPublished] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showShare, setShowShare] = useState(false);
 
-  const currentAnimal = useMemo(
-    () => animals.find((animal) => animal.id === selectedAnimal) ?? animals[0],
-    [selectedAnimal],
-  );
   const activeProject = selectedProject ?? projects[0] ?? null;
+  const activeFile =
+    projectFiles.find((file) => file.id === selectedFileId) ??
+    projectFiles[0] ??
+    null;
+  const hasUnsavedChanges = Boolean(
+    activeFile && activeFile.content !== draftContent,
+  );
+  const previewFiles = useMemo(
+    () =>
+      projectFiles.map((file) =>
+        file.id === activeFile?.id ? { ...file, content: draftContent } : file,
+      ),
+    [activeFile?.id, draftContent, projectFiles],
+  );
+  const previewDocument = useMemo(
+    () => buildPreviewDocument(previewFiles),
+    [previewFiles],
+  );
+
+  useEffect(() => {
+    if (!activeProject) return;
+
+    let isCurrent = true;
+
+    async function loadProjectFiles() {
+      setIsLoadingFiles(true);
+      setFileError(null);
+
+      if (!viewer.id) {
+        const files = demoProjectFiles.map((file) => ({
+          ...file,
+          id: `${activeProject.id}-${file.path}`,
+          project_id: activeProject.id,
+        }));
+        if (isCurrent) {
+          setProjectFiles(files);
+          setSelectedFileId(files[0]?.id ?? null);
+          setDraftContent(files[0]?.content ?? "");
+          setIsLoadingFiles(false);
+        }
+        return;
+      }
+
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("project_files")
+        .select(
+          "id, project_id, path, content, version, created_at, updated_at",
+        )
+        .eq("project_id", activeProject.id)
+        .order("path", { ascending: true });
+
+      if (!isCurrent) return;
+
+      if (error) {
+        setFileError(error.message);
+        setProjectFiles([]);
+        setSelectedFileId(null);
+      } else {
+        const files = (data ?? []) as ProjectFile[];
+        const preferredFile =
+          files.find((file) => file.path === "index.html") ?? files[0] ?? null;
+        setProjectFiles(files);
+        setSelectedFileId(preferredFile?.id ?? null);
+        setDraftContent(preferredFile?.content ?? "");
+      }
+      setIsLoadingFiles(false);
+    }
+
+    void loadProjectFiles();
+    return () => {
+      isCurrent = false;
+    };
+  }, [activeProject, viewer.id]);
 
   function openProject(project: StudentProject) {
     setSelectedProject(project);
@@ -107,6 +171,83 @@ export default function PlatformApp({
     setSelectedProject(project);
   }
 
+  function selectFile(file: ProjectFile) {
+    setSelectedFileId(file.id);
+    setDraftContent(file.content);
+    setFileError(null);
+  }
+
+  async function saveActiveFile() {
+    if (!activeFile || !activeProject || !hasUnsavedChanges) return;
+    setIsSavingFile(true);
+    setFileError(null);
+
+    try {
+      let savedFile: ProjectFile;
+
+      if (viewer.id) {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("project_files")
+          .update({
+            content: draftContent,
+            version: activeFile.version + 1,
+          })
+          .eq("id", activeFile.id)
+          .eq("project_id", activeProject.id)
+          .select(
+            "id, project_id, path, content, version, created_at, updated_at",
+          )
+          .single();
+
+        if (error) throw error;
+        savedFile = data as ProjectFile;
+
+        const nextProgress = Math.max(activeProject.progress, 45);
+        const { data: updatedProject } = await supabase
+          .from("projects")
+          .update({ status: "active", progress: nextProgress })
+          .eq("id", activeProject.id)
+          .eq("owner_id", viewer.id)
+          .select(
+            "id, owner_id, name, description, template, status, progress, created_at, updated_at",
+          )
+          .single();
+
+        if (updatedProject) {
+          const nextProject = updatedProject as StudentProject;
+          setProjects((current) =>
+            current.map((project) =>
+              project.id === nextProject.id ? nextProject : project,
+            ),
+          );
+          setSelectedProject(nextProject);
+        }
+      } else {
+        savedFile = {
+          ...activeFile,
+          content: draftContent,
+          version: activeFile.version + 1,
+          updated_at: new Date().toISOString(),
+        };
+      }
+
+      setProjectFiles((current) =>
+        current.map((file) => (file.id === savedFile.id ? savedFile : file)),
+      );
+      setDraftContent(savedFile.content);
+      setPreviewKey((current) => current + 1);
+    } catch (caughtError) {
+      setFileError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Muse could not save this file. Please try again.",
+      );
+    } finally {
+      setIsSavingFile(false);
+    }
+  }
+
   function sendPrompt(text = message) {
     if (!text.trim()) return;
     setMessage("");
@@ -116,20 +257,6 @@ export default function PlatformApp({
   function applyChange() {
     setStage(3);
     setStudioTab("preview");
-  }
-
-  function chooseHabitat(habitat: string) {
-    if (habitat === currentAnimal.habitat) {
-      setScore((value) => value + 10);
-      setFeedback(`Great thinking! ${currentAnimal.name}s belong here.`);
-      const nextIndex = (animals.findIndex((animal) => animal.id === currentAnimal.id) + 1) % animals.length;
-      window.setTimeout(() => {
-        setSelectedAnimal(animals[nextIndex].id);
-        setFeedback(`Now find the ${animals[nextIndex].name.toLowerCase()}’s habitat`);
-      }, 900);
-    } else {
-      setFeedback("Not quite — look for a clue in the habitat.");
-    }
   }
 
   return (
@@ -208,7 +335,12 @@ export default function PlatformApp({
             <div className="title-group">
               <button className="back-button" onClick={() => setView("projects")} aria-label="Back to projects"><ChevronLeftIcon /></button>
               <div>
-                <div className="project-title">{activeProject?.name ?? "Untitled project"} <span className="status-dot">Saved</span></div>
+                <div className="project-title">
+                  {activeProject?.name ?? "Untitled project"}{" "}
+                  <span className={hasUnsavedChanges ? "status-dot unsaved" : "status-dot"}>
+                    {hasUnsavedChanges ? "Unsaved" : "Saved"}
+                  </span>
+                </div>
                 <div className="breadcrumb">Educational game <span>/</span> main</div>
               </div>
             </div>
@@ -316,35 +448,32 @@ export default function PlatformApp({
                     </button>
                   ))}
                 </div>
-                <div className="device-actions"><button className="active" aria-label="Desktop preview"><ComputerDesktopIcon /></button><button aria-label="Mobile preview"><DevicePhoneMobileIcon /></button><span /><button aria-label="Refresh"><ArrowPathIcon /></button><button aria-label="Open preview"><ArrowTopRightOnSquareIcon /></button></div>
+                <div className="device-actions"><button className="active" aria-label="Desktop preview"><ComputerDesktopIcon /></button><button aria-label="Mobile preview"><DevicePhoneMobileIcon /></button><span /><button aria-label="Refresh preview" onClick={() => setPreviewKey((current) => current + 1)}><ArrowPathIcon /></button><button aria-label="Open preview" disabled><ArrowTopRightOnSquareIcon /></button></div>
               </div>
 
               {studioTab === "preview" && (
                 <div className="preview-stage">
                   <div className="browser-frame">
-                    <div className="browser-bar"><div><i /><i /><i /></div><span>habitat-heroes.muse.site</span><span>⋮</span></div>
-                    <div className="game">
-                      <div className="game-header">
-                        <div className="game-logo"><span>🌍</span><div><strong>Habitat Heroes</strong><small>Where does each animal belong?</small></div></div>
-                        {stage >= 3 && <div className="game-score"><StarIcon /><div><small>SCORE</small><strong>{score}</strong></div><i /><div><small>STREAK</small><strong>{score > 0 ? "1 🔥" : "0"}</strong></div></div>}
+                    <div className="browser-bar"><div><i /><i /><i /></div><span>{projectSlug(activeProject?.name ?? "project")}.muse.local</span><span>⋮</span></div>
+                    {isLoadingFiles ? (
+                      <div className="workspace-loading"><ArrowPathIcon /><span>Loading project files…</span></div>
+                    ) : projectFiles.length ? (
+                      <iframe
+                        className="project-preview-frame"
+                        key={previewKey}
+                        sandbox="allow-scripts"
+                        srcDoc={previewDocument}
+                        title={`${activeProject?.name ?? "Project"} preview`}
+                      />
+                    ) : (
+                      <div className="workspace-empty">
+                        <DocumentIcon />
+                        <strong>No project files yet</strong>
+                        <p>Create a new Educational Game project to scaffold HTML, CSS, and JavaScript.</p>
                       </div>
-                      <div className="game-progress"><span style={{ width: `${34 + score}%` }} /></div>
-                      <div className="game-content">
-                        <div className="round-label">ROUND 1 OF 3</div>
-                        <h2>Where does the <em>{currentAnimal.name.toLowerCase()}</em> live?</h2>
-                        <p>{feedback}</p>
-                        <div className="animal-card"><span>{currentAnimal.icon}</span><strong>{currentAnimal.name}</strong><small>Tap a habitat below</small></div>
-                        <div className="habitat-grid">
-                          {habitats.map((habitat) => (
-                            <button key={habitat.id} onClick={() => chooseHabitat(habitat.id)} style={{ background: habitat.color }}>
-                              <span>{habitat.icon}</span><strong>{habitat.name}</strong>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </div>
-                  <div className="preview-footer"><span><i /> Preview is live</span><span>Last updated just now</span></div>
+                  <div className="preview-footer"><span><i /> Sandboxed preview is live</span><span>{hasUnsavedChanges ? "Showing unsaved changes" : "Files are saved"}</span></div>
                 </div>
               )}
 
@@ -352,17 +481,52 @@ export default function PlatformApp({
                 <div className="files-view">
                   <div className="files-sidebar">
                     <span>PROJECT FILES</span>
-                    <button className="active"><ChevronDownIcon /> <b>habitat-heroes</b></button>
-                    <button><FolderIcon /> app</button>
-                    <button><RectangleStackIcon /> components</button>
-                    <button><CodeBracketIcon /> game.tsx</button>
-                    <button><DocumentIcon /> styles.css</button>
-                    <button><BookOpenIcon /> README.md</button>
+                    <div className="file-tree-root"><ChevronDownIcon /> <b>{projectSlug(activeProject?.name ?? "project")}</b></div>
+                    {projectFiles.map((file) => (
+                      <button
+                        className={activeFile?.id === file.id ? "active" : ""}
+                        key={file.id}
+                        onClick={() => selectFile(file)}
+                      >
+                        <DocumentIcon /> {file.path}
+                      </button>
+                    ))}
                   </div>
                   <div className="code-card">
-                    <div className="code-title"><span>game.tsx</span><span>Saved</span></div>
-                    <pre><code>{`export function HabitatGame() {\n  const [score, setScore] = useState(0)\n\n  function checkMatch(animal, habitat) {\n    if (animal.habitat === habitat) {\n      setScore(score + 10)\n      celebrate("Great thinking!")\n    }\n  }\n\n  return <GameBoard onMatch={checkMatch} />\n}`}</code></pre>
-                    <div className="code-explainer"><SparklesIcon /><p><strong>What this does</strong><br />This keeps track of the player’s score and celebrates every correct match.</p></div>
+                    {isLoadingFiles ? (
+                      <div className="workspace-loading"><ArrowPathIcon /><span>Loading project files…</span></div>
+                    ) : activeFile ? (
+                      <>
+                        <div className="code-title">
+                          <span>{activeFile.path}</span>
+                          <div>
+                            <small>Version {activeFile.version}</small>
+                            <button
+                              className="button primary"
+                              disabled={!hasUnsavedChanges || isSavingFile}
+                              onClick={saveActiveFile}
+                            >
+                              {isSavingFile ? "Saving…" : "Save file"}
+                            </button>
+                          </div>
+                        </div>
+                        <textarea
+                          aria-label={`Edit ${activeFile.path}`}
+                          className="code-editor"
+                          onChange={(event) => setDraftContent(event.target.value)}
+                          spellCheck={false}
+                          value={draftContent}
+                        />
+                        <div className="code-explainer"><SparklesIcon /><p><strong>Live preview</strong><br />Your unsaved edits appear in Preview immediately. Save to keep a new file version.</p></div>
+                      </>
+                    ) : (
+                      <div className="workspace-empty">
+                        <DocumentIcon />
+                        <strong>No editable files</strong>
+                        <p>This project needs a workspace scaffold.</p>
+                      </div>
+                    )}
+                    {fileError && <p className="workspace-error" role="alert">{fileError}</p>}
                   </div>
                 </div>
               )}
@@ -461,4 +625,15 @@ function initials(name: string) {
 
 function roleLabel(role: Viewer["role"]) {
   return role[0].toUpperCase() + role.slice(1);
+}
+
+function projectSlug(name: string) {
+  return (
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48) || "student-project"
+  );
 }
