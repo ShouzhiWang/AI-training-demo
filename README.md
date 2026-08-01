@@ -144,6 +144,23 @@ npm run dev
 npm run build
 ```
 
+## Production deployment
+
+The application is deployed as two Vercel projects:
+
+- Frontend: `https://muse-ai-training.vercel.app`
+- FastAPI service: `https://muse-ai-training-api.vercel.app`
+
+The root project uses `vercel.json` to run the native Next.js build. The
+`backend/` directory is linked separately and exposes `app.main:app` as a
+FastAPI Vercel Function. Production environment variables are managed in the
+respective Vercel projects and must never be committed.
+
+Supabase Auth uses the frontend production URL as its site URL while retaining
+the localhost callback URLs for development. After changing the production
+domain, update `supabase/config.toml`, run `supabase config push`, and update
+the backend `FRONTEND_ORIGIN` plus frontend `NEXT_PUBLIC_API_URL` variables.
+
 This starter does not use `wrangler.jsonc`.
 
 ## Included Shape
