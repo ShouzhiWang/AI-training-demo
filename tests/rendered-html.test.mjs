@@ -31,7 +31,7 @@ test("renders the Muse workspace in credential-free demo mode", async () => {
 
   const html = await response.text();
   assert.match(html, /Muse — Learn by making/i);
-  assert.match(html, /Habitat Heroes/);
+  assert.match(html, /Hello World Lab/);
   assert.match(html, /Student dashboard/i);
   assert.match(html, /Educational Game/);
   assert.match(html, /Alex Lee/);
@@ -146,10 +146,17 @@ test("Phase 2 projects are persisted behind owner-scoped RLS", async () => {
 });
 
 test("Phase 3 persists project files and renders them in a sandbox", async () => {
-  const [migration, workspace, projectTypes] = await Promise.all([
+  const [migration, templateMigration, workspace, projectTypes] = await Promise.all([
     readFile(
       new URL(
         "../supabase/migrations/20260731063730_create_project_workspace_files.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../supabase/migrations/20260731090412_hello_world_project_template.sql",
         import.meta.url,
       ),
       "utf8",
@@ -169,6 +176,9 @@ test("Phase 3 persists project files and renders them in a sandbox", async () =>
   assert.match(migration, /insert into storage\.buckets/i);
   assert.match(migration, /bucket_id = 'project-assets'/i);
   assert.doesNotMatch(migration, /security definer/i);
+  assert.match(templateMigration, /Hello, world!/i);
+  assert.match(templateMigration, /security invoker/i);
+  assert.doesNotMatch(templateMigration, /security definer/i);
 
   assert.match(workspace, /\.from\("project_files"\)/);
   assert.match(workspace, /\.rpc\(\s*"save_project_changes"/);
@@ -207,6 +217,8 @@ test("Phase 4 routes authenticated agent requests and persists usage", async () 
   assert.match(workspace, /MarkdownMessage/);
   assert.match(workspace, /Suggested replies/);
   assert.match(workspace, /payload\.suggestions/);
+  assert.match(workspace, /Current AI model/);
+  assert.match(workspace, /payload\.model/);
   assert.match(agentApi, /Depends\(get_current_user\)/);
   assert.match(graph, /StateGraph/);
   assert.match(graph, /planner|coder|reviewer/);

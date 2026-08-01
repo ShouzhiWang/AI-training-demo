@@ -109,9 +109,19 @@ API, which validates it before reading or changing a project.
 
 ## Phase 5 test flow
 
-1. Change a test profile's role to `teacher` or `admin` using the Supabase
-   dashboard or a trusted server-side SQL session.
-2. Sign in as that account and open **Educator dashboard** in the sidebar.
+1. In the Supabase Dashboard, open **SQL Editor** and promote only the account
+   you want to use for administration:
+
+   ```sql
+   update public.user_profiles
+   set role = 'admin'
+   where email = 'your-login-email@example.com';
+   ```
+
+   The application intentionally does not let browser clients edit roles.
+2. Keep the FastAPI service running on port 8000, refresh the app, and open
+   **Educator dashboard** in the sidebar. A `teacher` role can access the same
+   dashboard if you want a less privileged educator label.
 3. Verify Overview, Students, Projects, and AI analytics load.
 4. Sign in as a student and confirm the educator API endpoints return 403 and
    the educator navigation is hidden.

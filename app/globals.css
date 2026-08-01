@@ -131,6 +131,25 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid #6f9b86; outli
 .composer-footer { display: flex; justify-content: space-between; align-items: center; }
 .composer-footer > div { display: flex; gap: 7px; align-items: center; color: #757c75; font-size: 9px; }
 .composer-footer button { border: 0; background: transparent; cursor: pointer; }
+.composer-send { display: flex; align-items: center; gap: 8px; }
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 150px;
+  overflow: hidden;
+  border: 1px solid #dde6df;
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: #53705f;
+  background: #f4f8f5;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-chip svg { width: 10px; height: 10px; flex: 0 0 10px; }
 .toggle { width: 24px; height: 14px; border-radius: 20px !important; padding: 2px !important; background: #d3d8d3 !important; }.toggle.on { background: #589072 !important; }.toggle i { display: block; width: 10px; height: 10px; border-radius: 50%; background: #fff; margin-left: 10px; }
 .send-button { width: 25px; height: 25px; background: #1d6048 !important; color: #fff; border-radius: 7px !important; font-size: 15px; }
 .composer-hint { display: block; color: #adb1ad; text-align: center; font-size: 8px; margin-top: 5px; }

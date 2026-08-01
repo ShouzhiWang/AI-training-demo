@@ -25,6 +25,10 @@ async def health():
     return {
         "status": "ok",
         "deepseek": "configured" if settings.deepseek_api_key else "development-fallback",
+        "model": (
+            settings.deepseek_model
+            if settings.deepseek_api_key
+            else "muse-development-mentor"
+        ),
         "supabase": "configured" if settings.supabase_ready else "needs-server-credentials",
     }
-

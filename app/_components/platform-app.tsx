@@ -101,6 +101,9 @@ export default function PlatformApp({
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentFileChanges, setAgentFileChanges] = useState(0);
+  const [activeModel, setActiveModel] = useState(
+    viewer.id ? "DeepSeek" : "Muse Demo",
+  );
   const [projectVersions, setProjectVersions] = useState<ProjectVersion[]>([]);
   const [isLoadingVersions, setIsLoadingVersions] = useState(false);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
@@ -133,6 +136,31 @@ export default function PlatformApp({
     () => summarizeVersions(projectVersions),
     [projectVersions],
   );
+
+  useEffect(() => {
+    if (!viewer.id) return;
+    let isCurrent = true;
+
+    async function loadActiveModel() {
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/health`,
+        );
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (isCurrent && typeof payload.model === "string") {
+          setActiveModel(formatModelLabel(payload.model));
+        }
+      } catch {
+        // The agent request will report a detailed connectivity error if used.
+      }
+    }
+
+    void loadActiveModel();
+    return () => {
+      isCurrent = false;
+    };
+  }, [viewer.id]);
 
   const loadProjectVersions = useCallback(
     async (projectId: string) => {
@@ -428,6 +456,9 @@ export default function PlatformApp({
       }
 
       setAgentSessionId(payload.session_id);
+      if (payload.model) {
+        setActiveModel(formatModelLabel(payload.model));
+      }
       setAgentMessages((current) => [
         ...current,
         {
@@ -722,7 +753,13 @@ export default function PlatformApp({
                   }} disabled={isAgentThinking || !activeProject} />
                   <div className="composer-footer">
                     <div><button className="composer-icon" title="Attach"><PaperClipIcon /></button><span>Plan first</span><button className="toggle on" aria-label="Plan first enabled"><i /></button></div>
-                    <button className="send-button" disabled={isAgentThinking || !message.trim()} onClick={() => void sendPrompt()} aria-label="Send message"><ArrowUpIcon /></button>
+                    <div className="composer-send">
+                      <span className="model-chip" title={`Current AI model: ${activeModel}`}>
+                        <SparklesIcon />
+                        {activeModel}
+                      </span>
+                      <button className="send-button" disabled={isAgentThinking || !message.trim()} onClick={() => void sendPrompt()} aria-label="Send message"><ArrowUpIcon /></button>
+                    </div>
                   </div>
                 </div>
                 <span className="composer-hint">Muse can make mistakes. Test your game before sharing.</span>
@@ -943,6 +980,19 @@ function initials(name: string) {
 
 function roleLabel(role: Viewer["role"]) {
   return role[0].toUpperCase() + role.slice(1);
+}
+
+function formatModelLabel(model: string) {
+  if (model === "muse-development-mentor") return "Muse Dev Mentor";
+  if (/^deepseek-/i.test(model)) {
+    return `DeepSeek ${model
+      .replace(/^deepseek-/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase())}`;
+  }
+  return model
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function agentLabel(agent?: AgentMessage["agent"]) {

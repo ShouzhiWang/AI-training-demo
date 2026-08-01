@@ -45,11 +45,11 @@ export type ProjectVersion = {
 };
 
 export const demoProject: StudentProject = {
-  id: "demo-habitat-heroes",
+  id: "demo-hello-world",
   owner_id: "demo-student",
-  name: "Habitat Heroes",
+  name: "Hello World Lab",
   description:
-    "A matching game that helps young learners discover where animals live.",
+    "A friendly first project that introduces interactive web development.",
   template: "educational_game",
   status: "active",
   progress: 68,
@@ -72,19 +72,15 @@ export const demoProjectFiles: ProjectFile[] = [
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Habitat Heroes</title>
+    <title>Hello World Lab</title>
   </head>
   <body>
     <main class="game-shell">
-      <p class="eyebrow">HABITAT HEROES</p>
-      <h1>Where does the fox live?</h1>
-      <p>Choose the habitat that matches this animal.</p>
-      <div class="answer-grid">
-        <button data-correct="true">Forest</button>
-        <button data-correct="false">Ocean</button>
-        <button data-correct="false">Savanna</button>
-      </div>
-      <p id="feedback" aria-live="polite">Pick a habitat to begin.</p>
+      <p class="eyebrow">YOUR FIRST WEB PROJECT</p>
+      <h1 id="greeting">Hello, world!</h1>
+      <p>Press the button to greet the world in another language.</p>
+      <button id="say-hello">Say hello</button>
+      <p id="counter" aria-live="polite">You have shared 0 greetings.</p>
     </main>
   </body>
 </html>`,
@@ -137,15 +133,10 @@ h1 {
   font-weight: 500;
 }
 
-.answer-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin: 28px 0 18px;
-}
-
 button {
+  margin: 22px 0 14px;
   min-height: 58px;
+  padding: 0 28px;
   border: 1px solid #c8d8ca;
   border-radius: 14px;
   color: #285039;
@@ -156,7 +147,7 @@ button {
 }
 
 button:hover { background: #e6f2e8; border-color: #679477; }
-#feedback { color: #657269; }`,
+#counter { color: #657269; }`,
   },
   {
     id: "demo-script",
@@ -165,15 +156,15 @@ button:hover { background: #e6f2e8; border-color: #679477; }
     version: 3,
     created_at: demoTimestamp,
     updated_at: demoTimestamp,
-    content: `const feedback = document.querySelector("#feedback");
+    content: `const greetings = ["Hello, world!", "Hola, mundo!", "Bonjour, le monde!", "你好，世界！"];
+const greeting = document.querySelector("#greeting");
+const counter = document.querySelector("#counter");
+let count = 0;
 
-document.querySelectorAll("[data-correct]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const isCorrect = button.dataset.correct === "true";
-    feedback.textContent = isCorrect
-      ? "Great thinking! Foxes live in forests."
-      : "Not quite. Look for a habitat with trees.";
-  });
+document.querySelector("#say-hello").addEventListener("click", () => {
+  count += 1;
+  greeting.textContent = greetings[count % greetings.length];
+  counter.textContent = \`You have shared \${count} \${count === 1 ? "greeting" : "greetings"}.\`;
 });`,
   },
 ];
