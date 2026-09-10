@@ -1,243 +1,262 @@
-# Muse — AI-Native Learning Platform
+# Muse
 
-The repository is being implemented from
-`AI_Native_Learning_Platform_Full_Stack_Implementation_Plan.md`.
+Muse is an AI-native learning studio. Students describe an idea, work with an
+AI mentor, edit a small web project, test it in a sandboxed preview, and review
+their progress. Educators can inspect classroom activity and AI usage through a
+role-protected dashboard.
 
-Implemented phases:
+This repository contains the current MVP. It uses email/password Supabase Auth,
+a Next.js/React frontend, a FastAPI + LangGraph agent service, and Supabase
+Postgres for application data. In-product GitHub import/export is not
+implemented yet.
 
-- Phase 1: Supabase email authentication, SSR session handling, password
-  recovery, and secure student/teacher/admin profiles.
-- Phase 2: a student dashboard backed by owner-scoped Supabase projects,
-  learning progress and recent activity summaries, plus the Educational Game
-  project-creation template.
-- Phase 3: persisted HTML/CSS/JavaScript project files, an editable workspace,
-  sandboxed live preview, transactional project snapshots with restore, and a
-  private `project-assets` Storage bucket.
-- Phase 4: a FastAPI service with a LangGraph Supervisor that routes to
-  Planner, Coder, and Reviewer agents; authenticated chat, persisted sessions
-  and messages that reload with each project, safe project-file updates, and
-  per-request AI usage tracking.
-- Phase 5: a role-protected educator dashboard for class metrics, student
-  progress, project activity, and AI usage analytics.
+## What is included
 
-## Supabase auth setup
+- Email sign-up, sign-in, OTP confirmation, and password recovery.
+- Student dashboard with owner-scoped projects and progress summaries.
+- Educational Game projects with editable HTML, CSS, and JavaScript files.
+- Sandboxed live preview, real file versions, line-change summaries, and
+  snapshot restore.
+- Persisted project conversations with rendered Markdown and suggested replies.
+- Planner, Coder, and Reviewer agent routing through LangGraph.
+- Safe project-file updates and per-request AI usage tracking.
+- Teacher/admin dashboard for students, projects, progress, and usage analytics.
 
-1. Copy `.env.example` to `.env.local` and add the project URL and publishable
-   key from Supabase.
-2. Apply the migrations in `supabase/migrations/` to the Supabase project with
-   `supabase db push --linked`.
-3. Enable Email under Supabase Authentication providers.
-4. Add `http://localhost:3000/auth/callback`,
-   `http://localhost:3000/auth/confirm`, and the production callback URLs
-   to the Supabase redirect allow list.
-5. To send email OTPs instead of magic links, configure custom SMTP (or a
-   Supabase plan that supports hosted template changes), then copy the files
-   in `supabase/templates/` into the hosted Confirmation, Magic Link, and
-   Recovery templates. The default free-tier mailer does not allow template
-   modification through config-as-code. Set
-   `NEXT_PUBLIC_EMAIL_OTP_ENABLED=true` after the OTP template is active.
+## Architecture
 
-Without Supabase environment variables, the root route stays in demo mode and
-the login page shows setup guidance.
-
-## Phase 2 test flow
-
-1. Sign in and open `/`.
-2. Confirm the student dashboard shows Projects, Active, Progress, and AI
-   assists summaries.
-3. Choose **Educational Game**, enter a project name and learning idea, and
-   create the project.
-4. Refresh the page and confirm the project still appears in the sidebar,
-   continue-creating card, and recent activity.
-
-The Market Research Report template is intentionally visible but unavailable;
-the implementation plan calls for Educational Game first.
-
-## Phase 3 test flow
-
-1. Open an Educational Game project from the dashboard.
-2. Switch between **Preview** and **Files**.
-3. Edit `index.html`, `style.css`, or `script.js`; Preview reflects the draft
-   immediately inside a sandboxed iframe.
-4. Click **Save file**, refresh, reopen the project, and confirm the edit and
-   incremented version persist.
-5. Open **Changes** and confirm the save appears with its real file and line
-   counts.
-6. Restore the earlier snapshot, then confirm a new restore entry becomes
-   current and the previous file contents return.
-
-Text source files live in `public.project_files`. Binary images are reserved
-for the private `project-assets` bucket, using the object path
-`<project-id>/<filename>` so Storage RLS can enforce project ownership.
-
-## Phase 4/5 backend setup
-
-The browser never receives the Supabase service-role key or DeepSeek key.
-Configure them only in the Python service:
-
-```bash
-cp backend/.env.example backend/.env
-cd backend
-uv sync
-uv run uvicorn app.main:app --reload
+```text
+Browser
+  ├─ Next.js app (port 3000)
+  │    └─ Supabase browser client: Auth + owner-scoped data
+  └─ FastAPI agent service (port 8000)
+       ├─ validates the Supabase access token
+       ├─ routes work through LangGraph
+       ├─ calls DeepSeek when configured
+       └─ persists messages, file updates, snapshots, and usage in Supabase
 ```
 
-Fill `backend/.env` with:
+The browser never receives the Supabase service-role key or the DeepSeek API
+key. Authorization is enforced in both the API and Postgres RLS policies.
 
-- `SUPABASE_URL`: the same project URL used by the frontend
-- `SUPABASE_PUBLISHABLE_KEY`: the browser-safe publishable key
-- `SUPABASE_SERVICE_KEY`: the server-only Supabase service-role key
-- `DEEPSEEK_API_KEY`: the model API key; without it, the API uses a safe
-  development mentor response and does not modify files
+## Repository map
 
-Keep the Next.js app running on port 3000 and the API on port 8000. The
-frontend sends the signed-in user's short-lived Supabase access token to the
-API, which validates it before reading or changing a project.
-
-## Phase 4 test flow
-
-1. Open a project and ask Muse to plan an idea, change a file, or review the
-   learning experience.
-2. Confirm the response identifies the Planner, Coder, or Reviewer.
-3. For a coding request, confirm the updated files appear immediately in the
-   sandboxed Preview.
-4. Refresh and reopen the project; confirm its conversation, rendered
-   Markdown, and response suggestions are still present.
-5. Confirm the Muse change also appears as a restorable entry under
-   **Changes**.
-6. Refresh the dashboard and confirm **AI assists** has increased.
-
-## Phase 5 test flow
-
-1. In the Supabase Dashboard, open **SQL Editor** and promote only the account
-   you want to use for administration:
-
-   ```sql
-   update public.user_profiles
-   set role = 'admin'
-   where email = 'your-login-email@example.com';
-   ```
-
-   The application intentionally does not let browser clients edit roles.
-2. Keep the FastAPI service running on port 8000, refresh the app, and open
-   **Educator dashboard** in the sidebar. A `teacher` role can access the same
-   dashboard if you want a less privileged educator label.
-3. Verify Overview, Students, Projects, and AI analytics load.
-4. Sign in as a student and confirm the educator API endpoints return 403 and
-   the educator navigation is hidden.
-
-## Original starter notes
-
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+| Path | Purpose |
+| --- | --- |
+| `app/` | Next.js routes, auth screens, student workspace, and educator UI |
+| `app/_components/platform-app.tsx` | Main student workspace shell |
+| `app/_components/admin-dashboard.tsx` | Teacher/admin dashboard |
+| `lib/` | Supabase clients and project/file types |
+| `backend/app/` | FastAPI routes, LangGraph agents, DeepSeek integration |
+| `supabase/migrations/` | Ordered database schema, RLS, RPC, and seed migrations |
+| `supabase/templates/` | Optional hosted Auth email templates |
+| `tests/` | Frontend build/render checks |
+| `backend/tests/` | FastAPI and agent tests |
+| `vercel.json` | Frontend Vercel build configuration |
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
+- Python `>=3.12`
+- [`uv`](https://docs.astral.sh/uv/)
+- [Supabase CLI](https://supabase.com/docs/guides/cli)
+- A Supabase project with Email Auth enabled
 
-## Quick Start
+Vercel CLI is only needed for deployment. The app can be developed locally
+without a Vercel account.
+
+## Local setup
+
+### 1. Install dependencies
 
 ```bash
+git clone https://github.com/ShouzhiWang/AI-training-demo.git
+cd AI-training-demo
 npm install
-npm run dev
-npm run build
+cd backend && uv sync && cd ..
 ```
+
+### 2. Configure the frontend
+
+```bash
+cp .env.example .env.local
+```
+
+Set these values in `.env.local`:
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+NEXT_PUBLIC_EMAIL_OTP_ENABLED=false
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+`NEXT_PUBLIC_*` values are intentionally browser-visible. Do not put a
+service-role key or model key in this file.
+
+### 3. Configure the agent service
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Set these values in `backend/.env`:
+
+```dotenv
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SERVICE_KEY=<server-only-service-role-key>
+DEEPSEEK_API_KEY=<server-only-deepseek-key>
+DEEPSEEK_MODEL=deepseek-v4-flash
+FRONTEND_ORIGIN=http://localhost:3000
+```
+
+Without `DEEPSEEK_API_KEY`, the service uses a safe development mentor
+fallback. It can answer planning prompts, but it will not make AI file edits.
+
+### 4. Link and migrate Supabase
+
+Run this once per checkout, replacing the ref with the project you are using:
+
+```bash
+supabase link --project-ref <project-ref>
+supabase db push --linked --yes
+supabase db lint --linked
+```
+
+The migrations create profiles, projects, project files, agent sessions,
+messages, usage records, snapshots, restore RPCs, the storage bucket, and RLS
+policies. When adding schema changes, create a migration with:
+
+```bash
+supabase migration new describe_your_change
+```
+
+Do not edit an already-applied migration. Apply new migrations with
+`supabase db push --linked --yes` and include them in the same pull request.
+
+### 5. Start the app
+
+Use two terminals:
+
+```bash
+# Terminal 1: frontend
+npm run dev
+```
+
+```bash
+# Terminal 2: agent API
+cd backend
+uv run uvicorn app.main:app --reload
+```
+
+Open <http://localhost:3000>. The API health check is available at
+<http://localhost:8000/health>.
+
+If port 3000 or 8000 is already in use, inspect the process first:
+
+```bash
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+```
+
+You can start Uvicorn on another port with `--port 8001`, but then update
+`NEXT_PUBLIC_API_URL` and `FRONTEND_ORIGIN` to match.
+
+## Auth configuration
+
+Enable **Email** under Supabase **Authentication → Providers**. For local
+development, the required callback paths are:
+
+- `http://localhost:3000/auth/callback`
+- `http://localhost:3000/auth/confirm`
+- `http://localhost:3000/reset-password`
+
+If using the hosted email templates in `supabase/templates/`, configure custom
+SMTP (or a plan that allows template customization). Then set
+`NEXT_PUBLIC_EMAIL_OTP_ENABLED=true` after the confirmation template includes
+the OTP token.
+
+For a deployed domain, add the equivalent HTTPS callback URLs in Supabase Auth
+and update `supabase/config.toml` before running `supabase config push`.
+
+## Testing and quality checks
+
+Run the frontend checks from the repository root:
+
+```bash
+npm run lint
+npm test
+```
+
+Run the backend checks:
+
+```bash
+cd backend
+uv run pytest
+```
+
+Before opening a pull request, also run `git diff --check` and verify that no
+`.env*` or `.vercel/` files are staged.
+
+## Educator/admin access
+
+Roles are stored in `public.user_profiles` and cannot be changed by browser
+clients. Promote a trusted account in the Supabase SQL Editor:
+
+```sql
+update public.user_profiles
+set role = 'admin'
+where email = 'your-login-email@example.com';
+```
+
+Refresh the app and open **Educator dashboard** in the sidebar. The `teacher`
+role can access the same dashboard with the less privileged educator label.
 
 ## Production deployment
 
-The application is deployed as two Vercel projects:
+The live app is split into two Vercel projects:
 
-- Frontend: `https://muse-ai-training.vercel.app`
-- FastAPI service: `https://muse-ai-training-api.vercel.app`
+- Frontend: <https://muse-ai-training.vercel.app>
+- FastAPI service: <https://muse-ai-training-api.vercel.app>
 
-The root project uses `vercel.json` to run the native Next.js build. The
-`backend/` directory is linked separately and exposes `app.main:app` as a
-FastAPI Vercel Function. Production environment variables are managed in the
-respective Vercel projects and must never be committed.
+The frontend is deployed from the repository root with `vercel.json`. The
+FastAPI project is deployed from `backend/`; `backend/pyproject.toml` exposes
+`app.main:app` as the Vercel ASGI entry point. Production secrets are stored in
+Vercel project environment variables and must never be committed.
 
-Supabase Auth uses the frontend production URL as its site URL while retaining
-the localhost callback URLs for development. After changing the production
-domain, update `supabase/config.toml`, run `supabase config push`, and update
-the backend `FRONTEND_ORIGIN` plus frontend `NEXT_PUBLIC_API_URL` variables.
+To deploy from a new machine:
 
-This starter does not use `wrangler.jsonc`.
-
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npx vercel@latest login
+npx vercel@latest link --yes --project muse-ai-training
+npx vercel@latest deploy --prod --yes
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Link the backend separately from `backend/` and add the variables from
+`backend/.env.example` to the Vercel project before deploying. Set the
+frontend's `NEXT_PUBLIC_API_URL` to the API deployment URL, and set the API's
+`FRONTEND_ORIGIN` to the frontend URL.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+The current deployments were created through the CLI. GitHub automatic deploys
+are not connected, so a future `main` push does not deploy by itself until the
+repository is connected under **Vercel Project Settings → Git**.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+## Collaboration workflow
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+1. Create a branch from `main`.
+2. Keep frontend, backend, and migration changes scoped to one reviewable task.
+3. Add or update tests for behavior changes.
+4. Run the checks above locally.
+5. Open a pull request with a short summary, test output, migration notes, and
+   any new environment variables.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+Never commit `.env`, `.env.local`, service keys, database passwords, or
+`.vercel` project metadata. If a secret is exposed, rotate it immediately in
+Supabase, DeepSeek, or Vercel.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+## Useful references
 
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- [Supabase CLI and database migrations](https://supabase.com/docs/guides/cli)
+- [Supabase Auth redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)
+- [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
+- [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi)
